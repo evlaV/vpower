@@ -1,0 +1,8 @@
+[Unit]
+Description=Service that calculates battery metrics and handles critical battery scenarios
+
+[Service]
+ExecStart=/usr/lib/vpower
+
+[Install]
+WantedBy=graphical.target

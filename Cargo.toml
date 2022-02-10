@@ -3,6 +3,10 @@ name = "vpower"
 version = "1.0.0"
 edition = "2021"
 
+[[bin]]
+name = "vpower"
+path = "main.rs"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.5"
