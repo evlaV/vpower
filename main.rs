@@ -87,39 +87,46 @@ fn main() {
 
     // Every second:
     loop {
-        // Calculate battery_percent.
-        let charge_now = read_battery_f64("charge_now");
+        // Read battery variables.
         let charge_full = read_battery_f64("charge_full");
-        let battery_percent = charge_now / charge_full * 100.0;
-
-        // Calcuate secs_until_shutdown_request.
+        let charge_now = read_battery_f64("charge_now");
+        let current_now = read_battery_f64("current_now");
         let status = read_battery_string("status");
-        let secs_until_shutdown_request = if status == "Discharging" {
+        let voltage_min_design = read_battery_f64("voltage_min_design");
+        let voltage_now = read_battery_f64("voltage_now");
+
+        // Derive battery variables.
+        let battery_percent = charge_now / charge_full * 100.0;
+        let power_now = voltage_now * current_now;
+
+        // Calcuate (secs_until_battery_full, secs_until_shutdown_request).
+        let (secs_until_battery_full, secs_until_shutdown_request) = if status == "Charging" {
+            // Charging.
+            let charge_delta = charge_full - charge_now;
+            let hours_until_battery_full = charge_delta * voltage_min_design / power_now;
+            (hours_until_battery_full * 3600.0, -1.0)
+        } else if status == "Discharging" {
             if battery_percent > request_shutdown_battery_percent {
                 // Discharging and still above request_shutdown_battery_percent.
                 // Estimate secs_until_shutdown_request.
                 let charge_shutdown = charge_full * (request_shutdown_battery_percent / 100.0);
                 let charge_delta = charge_now - charge_shutdown;
-
-                let voltage_min_design = read_battery_f64("voltage_min_design");
-                let voltage_now = read_battery_f64("voltage_now");
-                let current_now = read_battery_f64("current_now");
-                let power_now = voltage_now * current_now;
-
                 let hours_until_shutdown_request = charge_delta * voltage_min_design / power_now;
-                hours_until_shutdown_request * 3600.0
+                (-1.0, hours_until_shutdown_request * 3600.0)
             } else {
                 // Discharging but at or below request_shutdown_battery_percent.
-                0.0
+                (-1.0, 0.0)
             }
         } else {
-            // Not discharging.
-            -1.0
+            // Not charging or discharging.
+            (-1.0, -1.0)
         };
 
         // Write to /run/vpower/*
         let dir_path = "/run/vpower";
         write_f64(dir_path, "battery_percent", battery_percent);
+        let val = secs_until_battery_full;
+        write_f64(dir_path, "secs_until_battery_full", val);
         let val = secs_until_shutdown_request;
         write_f64(dir_path, "secs_until_shutdown_request", val);
 
