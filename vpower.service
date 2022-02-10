@@ -1,5 +1,5 @@
 [Unit]
-Description=Service that calculates battery metrics and handles critical battery scenarios
+Description=vpower daemon
 
 [Service]
 ExecStart=/usr/lib/vpower
