@@ -96,6 +96,7 @@ fn main() {
         let voltage_now = read_battery_f64("voltage_now");
 
         // Derive battery variables.
+        let not_charging = status == "Not charging" || status == "Discharging";
         let power_now = voltage_now * current_now;
 
         // Calculate battery_percent.
@@ -111,8 +112,10 @@ fn main() {
             let charge_delta = charge_now - charge_shutdown;
             let hours_until_shutdown_request = charge_delta * voltage_min_design / power_now;
             hours_until_shutdown_request * 3600.0
-        } else {
+        } else if not_charging {
             0.0
+        } else {
+            1.0
         };
 
         // Write to /run/vpower/*
@@ -124,9 +127,7 @@ fn main() {
         write_f64(dir_path, "secs_until_shutdown_request", val);
 
         // Force shutdown after timeout.
-        if secs_until_shutdown_request == 0.0
-            && (status == "Discharging" || status == "Not charging")
-        {
+        if secs_until_shutdown_request == 0.0 {
             println!("Reached {request_shutdown_battery_percent}% battery.");
             println!("Forcing shutdown in {force_shutdown_timeout_secs} seconds.");
             thread::sleep(Duration::from_secs_f64(force_shutdown_timeout_secs));
