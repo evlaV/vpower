@@ -1,2 +1,2 @@
-request_shutdown_battery_percent = 0.5
+request_shutdown_battery_percent = 1
 force_shutdown_timeout_secs = 10

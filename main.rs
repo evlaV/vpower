@@ -59,7 +59,7 @@ fn write_f64(dir_path: &str, var_name: &str, val: f64) {
 fn main() {
     // Read /etc/vpower.toml
     let config_path = "/etc/vpower.toml";
-    let mut request_shutdown_battery_percent = 0.5;
+    let mut request_shutdown_battery_percent = 1.0;
     let mut force_shutdown_timeout_secs = 10.0;
 
     match fs::read(config_path) {
