@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::cmp::Ordering;
 use std::fs;
 use std::io;
 use std::process::Command;
@@ -35,8 +36,7 @@ fn read_battery_f64(var_name: &str) -> f64 {
         },
     }
 }
-
-fn write_f64(dir_path: &str, var_name: &str, val: f64) {
+fn write_str(dir_path: &str, var_name: &str, val: &str) {
     if let Err(err) = fs::create_dir(dir_path) {
         if err.kind() != io::ErrorKind::AlreadyExists {
             panic!("mkdir {dir_path}: {err}");
@@ -54,6 +54,10 @@ fn write_f64(dir_path: &str, var_name: &str, val: f64) {
     if let Err(err) = fs::rename(&dot_path, &final_path) {
         panic!("rename {dot_path} -> {final_path}: {err}");
     }
+}
+
+fn write_f64(dir_path: &str, var_name: &str, val: f64) {
+    write_str(dir_path, var_name, &val.to_string())
 }
 
 fn main() {
@@ -82,6 +86,9 @@ fn main() {
     println!("request_shutdown_battery_percent: {request_shutdown_battery_percent}");
     println!("force_shutdown_timeout_secs: {force_shutdown_timeout_secs}");
 
+    // Keep to heuristically determine if charging or discharging.
+    let mut prev_battery_percent = None;
+
     // Start.
     println!("Running.");
 
@@ -96,7 +103,7 @@ fn main() {
         let voltage_now = read_battery_f64("voltage_now");
 
         // Derive battery variables.
-        let not_charging = status == "Not charging" || status == "Discharging";
+        let charge_shutdown = charge_full * (request_shutdown_battery_percent / 100.0);
         let power_now = voltage_now * current_now;
 
         // Calculate battery_percent.
@@ -107,15 +114,27 @@ fn main() {
         let secs_until_battery_full = hours_until_battery_full * 3600.0;
 
         // Calcuate secs_until_shutdown_request.
-        let secs_until_shutdown_request = if battery_percent > request_shutdown_battery_percent {
-            let charge_shutdown = charge_full * (request_shutdown_battery_percent / 100.0);
+        let secs_until_shutdown_request = if charge_now > charge_shutdown {
             let charge_delta = charge_now - charge_shutdown;
             let hours_until_shutdown_request = charge_delta * voltage_min_design / power_now;
             hours_until_shutdown_request * 3600.0
-        } else if not_charging {
+        } else if status == "Not charging" || status == "Discharging" {
             0.0
         } else {
             1.0
+        };
+
+        // Calculate battery_status.
+        let battery_status = if status == "Full" {
+            Some("Full")
+        } else if let Some(prev_battery_percent) = prev_battery_percent {
+            match battery_percent.partial_cmp(&prev_battery_percent) {
+                Some(Ordering::Greater) => Some("Charging"),
+                Some(Ordering::Less) => Some("Discharging"),
+                _ => None,
+            }
+        } else {
+            None
         };
 
         // Write to /run/vpower/*
@@ -125,6 +144,10 @@ fn main() {
         write_f64(dir_path, "secs_until_battery_full", val);
         let val = secs_until_shutdown_request;
         write_f64(dir_path, "secs_until_shutdown_request", val);
+
+        if let Some(battery_status) = battery_status {
+            write_str(dir_path, "battery_status", battery_status);
+        }
 
         // Force shutdown after timeout.
         if secs_until_shutdown_request == 0.0 {
@@ -136,6 +159,9 @@ fn main() {
             Command::new("poweroff").output().unwrap();
             return;
         }
+
+        // Update prev_battery_percent.
+        prev_battery_percent = Some(battery_percent);
 
         // Sleep until next iteration.
         thread::sleep(Duration::from_secs(1));
