@@ -1,3 +1,6 @@
+mod sensors;
+
+use self::sensors::Sensors;
 use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fs;
@@ -86,6 +89,9 @@ fn main() {
     println!("request_shutdown_battery_percent: {request_shutdown_battery_percent}");
     println!("force_shutdown_timeout_secs: {force_shutdown_timeout_secs}");
 
+    // Initialize libsensors.
+    let sensors = Sensors::new();
+
     // Keep to heuristically determine if charging or discharging.
     let mut prev_battery_percent = None;
 
@@ -98,9 +104,14 @@ fn main() {
         let charge_full = read_battery_f64("charge_full");
         let charge_now = read_battery_f64("charge_now");
         let current_now = read_battery_f64("current_now");
+        let pdam = sensors.pdam();
+        let pdvl = sensors.pdvl();
         let status = read_battery_string("status");
         let voltage_min_design = read_battery_f64("voltage_min_design");
         let voltage_now = read_battery_f64("voltage_now");
+
+        println!("pdvl: {:?}", pdvl);
+        println!("pdam: {:?}", pdam);
 
         // Derive battery variables.
         let charge_shutdown = charge_full * (request_shutdown_battery_percent / 100.0);
