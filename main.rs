@@ -111,13 +111,31 @@ fn main() {
         let voltage_min_design = read_battery_f64("voltage_min_design");
         let voltage_now = read_battery_f64("voltage_now");
 
-        println!("pdcs: {:?}", pdcs);
-        println!("pdvl: {:?}", pdvl);
-        println!("pdam: {:?}", pdam);
-
         // Derive battery variables.
         let charge_shutdown = charge_full * (request_shutdown_battery_percent / 100.0);
         let power_now = voltage_now * current_now;
+
+        // Calculate ac_status.
+        let ac_status = if let (Some(pdcs), Some(pdvl), Some(pdam)) = (pdcs, pdvl, pdam) {
+            let connected = (pdcs & (1 << 0)) != 0;
+            let sink = (pdcs & (1 << 4)) == 0;
+            if connected && sink {
+                let contract_exists = (pdcs & (1 << 1)) != 0;
+                if contract_exists && pdvl * pdam < 30.0 {
+                    Some("Connected slow")
+                } else {
+                    Some("Connected")
+                }
+            } else {
+                Some("Disconnected")
+            }
+        } else if status == "Full" || status == "Charging" {
+            Some("Connected")
+        } else if status == "Discharging" || status == "Not charging" {
+            Some("Disconnected")
+        } else {
+            None
+        };
 
         // Calculate battery_percent.
         let battery_percent = charge_now / charge_full * 100.0;
@@ -157,6 +175,10 @@ fn main() {
         write_f64(dir_path, "secs_until_battery_full", val);
         let val = secs_until_shutdown_request;
         write_f64(dir_path, "secs_until_shutdown_request", val);
+
+        if let Some(ac_status) = ac_status {
+            write_str(dir_path, "ac_status", ac_status);
+        }
 
         if let Some(battery_status) = battery_status {
             write_str(dir_path, "battery_status", battery_status);
