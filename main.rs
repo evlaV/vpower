@@ -115,6 +115,24 @@ fn main() {
         let charge_shutdown = charge_full * (request_shutdown_battery_percent / 100.0);
         let power_now = voltage_now * current_now;
 
+        // Calculate battery_percent.
+        let battery_percent = charge_now / charge_full * 100.0;
+
+        // Calculate secs_until_battery_full.
+        let hours_until_battery_full = (charge_full - charge_now) * voltage_min_design / power_now;
+        let secs_until_battery_full = hours_until_battery_full * 3600.0;
+
+        // Calcuate secs_until_shutdown_request.
+        let secs_until_shutdown_request = if charge_now > charge_shutdown {
+            let charge_delta = charge_now - charge_shutdown;
+            let hours_until_shutdown_request = charge_delta * voltage_min_design / power_now;
+            hours_until_shutdown_request * 3600.0
+        } else if status == "Not charging" || status == "Discharging" {
+            0.0
+        } else {
+            1.0
+        };
+
         // Calculate ac_status.
         let ac_status = if let (Some(pdcs), Some(pdvl), Some(pdam)) = (pdcs, pdvl, pdam) {
             let connected = (pdcs & (1 << 0)) != 0;
@@ -134,24 +152,6 @@ fn main() {
             Some("Disconnected")
         } else {
             None
-        };
-
-        // Calculate battery_percent.
-        let battery_percent = charge_now / charge_full * 100.0;
-
-        // Calculate secs_until_battery_full.
-        let hours_until_battery_full = (charge_full - charge_now) * voltage_min_design / power_now;
-        let secs_until_battery_full = hours_until_battery_full * 3600.0;
-
-        // Calcuate secs_until_shutdown_request.
-        let secs_until_shutdown_request = if charge_now > charge_shutdown {
-            let charge_delta = charge_now - charge_shutdown;
-            let hours_until_shutdown_request = charge_delta * voltage_min_design / power_now;
-            hours_until_shutdown_request * 3600.0
-        } else if status == "Not charging" || status == "Discharging" {
-            0.0
-        } else {
-            1.0
         };
 
         // Calculate battery_status.
