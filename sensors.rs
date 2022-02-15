@@ -1,6 +1,9 @@
 use libc::*;
+use std::ffi::CStr;
+use std::fs;
 use std::mem::MaybeUninit;
 use std::ptr;
+use std::str::FromStr;
 
 #[repr(C)]
 struct sensors_bus_id {
@@ -151,6 +154,30 @@ impl Sensors {
         }
 
         sensors
+    }
+
+    fn path(&self) -> Option<String> {
+        if self.chip.is_null() {
+            None
+        } else {
+            unsafe {
+                let chip = &*self.chip;
+                Some(CStr::from_ptr(chip.path).to_owned().into_string().unwrap())
+            }
+        }
+    }
+
+    // PD contract status.
+    pub fn pdcs(&self) -> Option<u8> {
+        if let Some(path) = self.path() {
+            let path = format!("{path}/pdcs");
+            if let Ok(string) = fs::read_to_string(&path) {
+                if let Ok(val) = u8::from_str(string.trim()) {
+                    return Some(val);
+                }
+            }
+        }
+        None
     }
 
     // PD contract voltage.

@@ -105,11 +105,13 @@ fn main() {
         let charge_now = read_battery_f64("charge_now");
         let current_now = read_battery_f64("current_now");
         let pdam = sensors.pdam();
+        let pdcs = sensors.pdcs();
         let pdvl = sensors.pdvl();
         let status = read_battery_string("status");
         let voltage_min_design = read_battery_f64("voltage_min_design");
         let voltage_now = read_battery_f64("voltage_now");
 
+        println!("pdcs: {:?}", pdcs);
         println!("pdvl: {:?}", pdvl);
         println!("pdam: {:?}", pdam);
 
