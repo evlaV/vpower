@@ -120,8 +120,7 @@ fn main() {
             let connected = (pdcs & (1 << 0)) != 0;
             let sink = (pdcs & (1 << 4)) == 0;
             if connected && sink {
-                let contract_exists = (pdcs & (1 << 1)) != 0;
-                if contract_exists && pdvl * pdam < 30.0 {
+                if pdvl * pdam < 30.0 {
                     Some("Connected slow")
                 } else {
                     Some("Connected")
