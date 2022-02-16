@@ -148,7 +148,7 @@ fn main() {
             }
         } else if status == "Full" || status == "Charging" {
             Some("Connected")
-        } else if status == "Discharging" || status == "Not charging" {
+        } else if status == "Discharging" {
             Some("Disconnected")
         } else {
             None
