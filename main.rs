@@ -92,8 +92,9 @@ fn main() {
     // Initialize libsensors.
     let sensors = Sensors::new();
 
-    // Keep to heuristically determine if charging or discharging.
+    // Keep to heuristically determine if full, charging, or discharging.
     let mut prev_battery_percent = None;
+    let mut full = false;
 
     // Start.
     println!("Running.");
@@ -154,8 +155,15 @@ fn main() {
             None
         };
 
+        // Update full.
+        if status == "Full" || (status == "Charging" && battery_percent >= 99.5) {
+            full = true;
+        } else if status == "Discharging" || battery_percent < 95.0 {
+            full = false;
+        }
+
         // Calculate battery_status.
-        let battery_status = if status == "Full" {
+        let battery_status = if full {
             Some("Full")
         } else if let Some(prev_battery_percent) = prev_battery_percent {
             match battery_percent.partial_cmp(&prev_battery_percent) {
@@ -165,7 +173,16 @@ fn main() {
             }
         } else {
             None
-        };
+        }
+        .or_else(|| {
+            if status == "Charging" {
+                Some("Charging")
+            } else if status == "Discharging" {
+                Some("Discharging")
+            } else {
+                None
+            }
+        });
 
         // Write to /run/vpower/*
         let dir_path = "/run/vpower";
