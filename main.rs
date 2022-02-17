@@ -92,7 +92,8 @@ fn main() {
     // Initialize libsensors.
     let sensors = Sensors::new();
 
-    // Keep to heuristically determine if full, charging, or discharging.
+    // Keep for heuristics.
+    let mut prev_ac_status = None;
     let mut prev_battery_percent = None;
     let mut full = false;
 
@@ -140,7 +141,7 @@ fn main() {
             let sink = (pdcs & (1 << 4)) == 0;
             if connected && sink {
                 let pd_power = pdvl * pdam; // Watts.
-                if pd_power > 0.0 && pd_power < 30.0 {
+                if prev_ac_status != Some("Disconnected") && pd_power > 0.0 && pd_power < 30.0 {
                     Some("Connected slow")
                 } else {
                     Some("Connected")
@@ -212,7 +213,8 @@ fn main() {
             return;
         }
 
-        // Update prev_battery_percent.
+        // Update prev_*.
+        prev_ac_status = ac_status;
         prev_battery_percent = Some(battery_percent);
 
         // Sleep until next iteration.
