@@ -16,51 +16,72 @@ struct Config {
     force_shutdown_timeout_secs: Option<f64>,
 }
 
-fn read_battery_string(var_name: &str) -> String {
+fn read_battery_string(var_name: &str) -> Option<String> {
     let path = format!("/sys/class/power_supply/BAT1/{var_name}");
     match fs::read_to_string(&path) {
-        Err(err) => panic!("read {path}: {err}"),
-        Ok(string) => string.trim().to_owned(),
+        Err(err) => {
+            eprintln!("read {path}: {err}");
+            None
+        }
+        Ok(string) => Some(string.trim().to_owned()),
     }
 }
 
-fn read_battery_f64(var_name: &str) -> f64 {
+fn read_battery_f64(var_name: &str) -> Option<f64> {
     let path = format!("/sys/class/power_supply/BAT1/{var_name}");
     match fs::read_to_string(&path) {
-        Err(err) => panic!("read {path}: {err}"),
+        Err(err) => {
+            eprintln!("read {path}: {err}");
+            None
+        }
         Ok(string) => match f64::from_str(string.trim()) {
-            Err(err) => panic!("read {path}: {err}"),
+            Err(err) => {
+                eprintln!("read {path}: {err}");
+                None
+            }
             Ok(val) => {
                 if !val.is_finite() {
-                    panic!("read {path}: {val} is not finite");
+                    eprintln!("read {path}: {val} is not finite");
+                    None
+                } else {
+                    Some(val)
                 }
-                val
             }
         },
     }
 }
-fn write_str(dir_path: &str, var_name: &str, val: &str) {
+
+fn write_str(dir_path: &str, var_name: &str, val: Option<&str>) {
+    let val = match val {
+        Some(val) => val,
+        None => return,
+    };
+
     if let Err(err) = fs::create_dir(dir_path) {
         if err.kind() != io::ErrorKind::AlreadyExists {
-            panic!("mkdir {dir_path}: {err}");
+            eprintln!("mkdir {dir_path}: {err}");
+            return;
         }
     }
 
     // Write to a temporary path first.
     let dot_path = format!("{dir_path}/.{var_name}");
     if let Err(err) = fs::write(&dot_path, format!("{val}\n")) {
-        panic!("write {dot_path}: {err}");
+        eprintln!("write {dot_path}: {err}");
+        return;
     }
 
     // Then move into place for atomicity.
     let final_path = format!("{dir_path}/{var_name}");
     if let Err(err) = fs::rename(&dot_path, &final_path) {
-        panic!("rename {dot_path} -> {final_path}: {err}");
+        eprintln!("rename {dot_path} -> {final_path}: {err}");
     }
 }
 
-fn write_f64(dir_path: &str, var_name: &str, val: f64) {
-    write_str(dir_path, var_name, &val.to_string())
+fn write_f64(dir_path: &str, var_name: &str, val: Option<f64>) {
+    if let Some(val) = val {
+        write_str(dir_path, var_name, Some(&val.to_string()))
+    }
 }
 
 fn main() {
@@ -114,25 +135,55 @@ fn main() {
         let voltage_now = read_battery_f64("voltage_now");
 
         // Derive battery variables.
-        let charge_shutdown = charge_full * (request_shutdown_battery_percent / 100.0);
-        let power_now = voltage_now * current_now;
+        let charge_shutdown = charge_full.map(|charge_full| {
+            let rsbp = request_shutdown_battery_percent;
+            charge_full * (rsbp / 100.0)
+        });
+
+        let power_now = match (voltage_now, current_now) {
+            (Some(voltage_now), Some(current_now)) => Some(voltage_now * current_now),
+            _ => None,
+        };
 
         // Calculate battery_percent.
-        let battery_percent = charge_now / charge_full * 100.0;
+        let battery_percent = match (charge_now, charge_full) {
+            (Some(charge_now), Some(charge_full)) => Some(charge_now / charge_full * 100.0),
+            _ => None,
+        };
 
         // Calculate secs_until_battery_full.
-        let hours_until_battery_full = (charge_full - charge_now) * voltage_min_design / power_now;
-        let secs_until_battery_full = hours_until_battery_full * 3600.0;
+        let vars = (charge_full, charge_now, voltage_min_design, power_now);
+        let secs_until_battery_full = match vars {
+            (Some(charge_full), Some(charge_now), Some(voltage_min_design), Some(power_now)) => {
+                let charge_delta = charge_full - charge_now;
+                let hours = charge_delta * voltage_min_design / power_now;
+                Some(hours * 3600.0)
+            }
+            _ => None,
+        };
 
         // Calcuate secs_until_shutdown_request.
-        let secs_until_shutdown_request = if charge_now > charge_shutdown {
-            let charge_delta = charge_now - charge_shutdown;
-            let hours_until_shutdown_request = charge_delta * voltage_min_design / power_now;
-            hours_until_shutdown_request * 3600.0
-        } else if status == "Not charging" || status == "Discharging" {
-            0.0
-        } else {
-            1.0
+        let vars = (charge_now, charge_shutdown, voltage_min_design, power_now);
+        let secs_until_shutdown_request = match vars {
+            (
+                Some(charge_now),
+                Some(charge_shutdown),
+                Some(voltage_min_design),
+                Some(power_now),
+            ) => {
+                if charge_now > charge_shutdown {
+                    let charge_delta = charge_now - charge_shutdown;
+                    let hours = charge_delta * voltage_min_design / power_now;
+                    Some(hours * 3600.0)
+                } else {
+                    match &status {
+                        Some(status) if status == "Not charging" => Some(0.0),
+                        Some(status) if status == "Discharging" => Some(0.0),
+                        _ => Some(1.0),
+                    }
+                }
+            }
+            _ => None,
         };
 
         // Calculate ac_status.
@@ -149,19 +200,24 @@ fn main() {
             } else {
                 Some("Disconnected")
             }
-        } else if status == "Full" || status == "Charging" {
-            Some("Connected")
-        } else if status == "Discharging" {
-            Some("Disconnected")
         } else {
-            None
+            match &status {
+                Some(status) if status == "Full" || status == "Charging" => Some("Connected"),
+                Some(status) if status == "Discharging" => Some("Disconnected"),
+                _ => None,
+            }
         };
 
         // Update full.
-        if status == "Full" || (status == "Charging" && battery_percent >= 99.5) {
-            full = true;
-        } else if status == "Discharging" || battery_percent < 95.0 {
-            full = false;
+        if let Some(status) = &status {
+            #[allow(clippy::if_same_then_else)]
+            if status == "Full" {
+                full = true;
+            } else if status == "Charging" && battery_percent.map_or(false, |x| x >= 99.5) {
+                full = true;
+            } else if status == "Discharging" || battery_percent.map_or(false, |x| x < 95.0) {
+                full = false;
+            }
         }
 
         // Calculate battery_status.
@@ -176,34 +232,26 @@ fn main() {
         } else {
             None
         }
-        .or_else(|| {
-            if status == "Charging" {
-                Some("Charging")
-            } else if status == "Discharging" {
-                Some("Discharging")
-            } else {
-                None
-            }
+        .or_else(|| match &status {
+            Some(status) if status == "Charging" => Some("Charging"),
+            Some(status) if status == "Discharging" => Some("Discharging"),
+            _ => None,
         });
 
         // Write to /run/vpower/*
         let dir_path = "/run/vpower";
+        write_str(dir_path, "ac_status", ac_status);
         write_f64(dir_path, "battery_percent", battery_percent);
+        write_str(dir_path, "battery_status", battery_status);
+
         let val = secs_until_battery_full;
         write_f64(dir_path, "secs_until_battery_full", val);
+
         let val = secs_until_shutdown_request;
         write_f64(dir_path, "secs_until_shutdown_request", val);
 
-        if let Some(ac_status) = ac_status {
-            write_str(dir_path, "ac_status", ac_status);
-        }
-
-        if let Some(battery_status) = battery_status {
-            write_str(dir_path, "battery_status", battery_status);
-        }
-
         // Force shutdown after timeout.
-        if secs_until_shutdown_request == 0.0 {
+        if secs_until_shutdown_request.map_or(false, |x| x == 0.0) {
             println!("Reached {request_shutdown_battery_percent}% battery.");
             println!("Forcing shutdown in {force_shutdown_timeout_secs} seconds.");
             thread::sleep(Duration::from_secs_f64(force_shutdown_timeout_secs));
