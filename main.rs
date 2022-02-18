@@ -187,12 +187,19 @@ fn main() {
         };
 
         // Calculate ac_status.
-        let ac_status = if let (Some(pdcs), Some(pdvl), Some(pdam)) = (pdcs, pdvl, pdam) {
+        let ac_status = if let Some(pdcs) = pdcs {
             let connected = (pdcs & (1 << 0)) != 0;
             let sink = (pdcs & (1 << 4)) == 0;
             if connected && sink {
-                let pd_power = pdvl * pdam; // Watts.
-                if prev_ac_status != Some("Disconnected") && pd_power > 0.0 && pd_power < 30.0 {
+                let was_disconnected = prev_ac_status == Some("Disconnected");
+                let pd_power = match (pdvl, pdam) {
+                    (Some(pdvl), Some(pdam)) => pdvl * pdam, // Watts.
+                    _ => 0.0
+                };
+
+                // Basically all power supplies get reported as low power for ~0.5 seconds
+                // after connecting, so ignore it on the first iteration after connecting.
+                if !was_disconnected && pd_power > 0.0 && pd_power < 30.0 {
                     Some("Connected slow")
                 } else {
                     Some("Connected")
@@ -257,8 +264,13 @@ fn main() {
             thread::sleep(Duration::from_secs_f64(force_shutdown_timeout_secs));
 
             println!("Shutting down now.");
-            Command::new("poweroff").output().unwrap();
-            return;
+            match Command::new("poweroff").status() {
+                Err(err) => panic!("poweroff: {err}"),
+                Ok(status) => match status.success() {
+                    false => panic!("poweroff: {status}"),
+                    true => return,
+                }
+            }
         }
 
         // Update prev_*.
