@@ -167,19 +167,6 @@ impl Sensors {
         }
     }
 
-    // Firmware version.
-    fn firmware_version(&self) -> Option<u32> {
-        if let Some(path) = self.path() {
-            let path = format!("{path}/firmware_version");
-            if let Ok(string) = fs::read_to_string(&path) {
-                if let Ok(val) = u32::from_str(string.trim()) {
-                    return Some(val);
-                }
-            }
-        }
-        None
-    }
-
     // PD contract status.
     pub fn pdcs(&self) -> Option<u8> {
         if let Some(path) = self.path() {
@@ -195,16 +182,6 @@ impl Sensors {
 
     // PD contract voltage (Volts).
     pub fn pdvl(&self) -> Option<f64> {
-        // PDVL is bugged on certain BIOS's.
-        match self.firmware_version() {
-            None => return None,
-            Some(firmware_version) => {
-                if firmware_version <= 45096 {
-                    return None;
-                }
-            }
-        }
-
         if !self.chip.is_null() {
             if let Some(subfeature_num) = self.pdvl_subfeature_num {
                 unsafe {
