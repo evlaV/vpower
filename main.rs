@@ -114,9 +114,8 @@ fn main() {
     let sensors = Sensors::new();
 
     // Keep for heuristics.
-    let mut prev_ac_status = None;
-    let mut prev_battery_percent = None;
-    let mut full = false;
+    let mut prev_ac_status: Option<&str> = None;
+    let mut prev_battery_percent: Option<f64> = None;
 
     // Start.
     println!("Running.");
@@ -176,9 +175,8 @@ fn main() {
                     let hours = charge_delta * voltage_min_design / power_now;
                     Some(hours * 3600.0)
                 } else {
-                    match &status {
-                        Some(status) if status == "Not charging" => Some(0.0),
-                        Some(status) if status == "Discharging" => Some(0.0),
+                    match status.as_deref() {
+                        Some("Not charging" | "Discharging") => Some(0.0),
                         _ => Some(1.0),
                     }
                 }
@@ -194,7 +192,7 @@ fn main() {
                 let was_disconnected = prev_ac_status == Some("Disconnected");
                 let pd_power = match (pdvl, pdam) {
                     (Some(pdvl), Some(pdam)) => pdvl * pdam, // Watts.
-                    _ => 0.0
+                    _ => 0.0,
                 };
 
                 // Basically all power supplies get reported as low power for ~0.5 seconds
@@ -208,42 +206,39 @@ fn main() {
                 Some("Disconnected")
             }
         } else {
-            match &status {
-                Some(status) if status == "Full" || status == "Charging" => Some("Connected"),
-                Some(status) if status == "Discharging" => Some("Disconnected"),
+            match status.as_deref() {
+                Some("Full" | "Charging") => Some("Connected"),
+                Some("Discharging") => Some("Disconnected"),
                 _ => None,
             }
         };
 
-        // Update full.
-        if let Some(status) = &status {
-            #[allow(clippy::if_same_then_else)]
-            if status == "Full" {
-                full = true;
-            } else if status == "Charging" && battery_percent.map_or(false, |x| x >= 99.5) {
-                full = true;
-            } else if status == "Discharging" || battery_percent.map_or(false, |x| x < 95.0) {
-                full = false;
-            }
-        }
-
         // Calculate battery_status.
-        let battery_status = if full {
-            Some("Full")
-        } else if let Some(prev_battery_percent) = prev_battery_percent {
-            match battery_percent.partial_cmp(&prev_battery_percent) {
-                Some(Ordering::Greater) => Some("Charging"),
-                Some(Ordering::Less) => Some("Discharging"),
-                _ => None,
+        let battery_status = match status.as_deref() {
+            Some("Full") => Some("Full"),
+            Some("Charging") => Some("Charging"),
+            Some("Discharging") => Some("Discharging"),
+            _ => {
+                // Probably "Unknown" or "Not charging". Use heuristics as a fallback.
+                let ordering = match (battery_percent, prev_battery_percent) {
+                    (Some(lhs), Some(rhs)) => lhs.partial_cmp(&rhs),
+                    _ => None,
+                };
+                match ordering {
+                    Some(Ordering::Less) => Some("Discharging"),
+                    Some(Ordering::Greater) => Some("Charging"),
+                    _ => {
+                        if battery_percent.unwrap_or(0.0) >= 89.5 {
+                            // Some batteries won't charge when plugged in above ~90%.
+                            // We call this "Full".
+                            Some("Full")
+                        } else {
+                            None
+                        }
+                    }
+                }
             }
-        } else {
-            None
-        }
-        .or_else(|| match &status {
-            Some(status) if status == "Charging" => Some("Charging"),
-            Some(status) if status == "Discharging" => Some("Discharging"),
-            _ => None,
-        });
+        };
 
         // Write to /run/vpower/*
         let dir_path = "/run/vpower";
@@ -269,13 +264,13 @@ fn main() {
                 Ok(status) => match status.success() {
                     false => panic!("poweroff: {status}"),
                     true => return,
-                }
+                },
             }
         }
 
         // Update prev_*.
         prev_ac_status = ac_status;
-        prev_battery_percent = Some(battery_percent);
+        prev_battery_percent = battery_percent;
 
         // Sleep until next iteration.
         thread::sleep(Duration::from_secs(1));
