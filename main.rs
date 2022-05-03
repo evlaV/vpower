@@ -144,46 +144,6 @@ fn main() {
             _ => None,
         };
 
-        // Calculate battery_percent.
-        let battery_percent = match (charge_now, charge_full) {
-            (Some(charge_now), Some(charge_full)) => Some(charge_now / charge_full * 100.0),
-            _ => None,
-        };
-
-        // Calculate secs_until_battery_full.
-        let vars = (charge_full, charge_now, voltage_min_design, power_now);
-        let secs_until_battery_full = match vars {
-            (Some(charge_full), Some(charge_now), Some(voltage_min_design), Some(power_now)) => {
-                let charge_delta = charge_full - charge_now;
-                let hours = charge_delta * voltage_min_design / power_now;
-                Some(hours * 3600.0)
-            }
-            _ => None,
-        };
-
-        // Calcuate secs_until_shutdown_request.
-        let vars = (charge_now, charge_shutdown, voltage_min_design, power_now);
-        let secs_until_shutdown_request = match vars {
-            (
-                Some(charge_now),
-                Some(charge_shutdown),
-                Some(voltage_min_design),
-                Some(power_now),
-            ) => {
-                if charge_now > charge_shutdown {
-                    let charge_delta = charge_now - charge_shutdown;
-                    let hours = charge_delta * voltage_min_design / power_now;
-                    Some(hours * 3600.0)
-                } else {
-                    match status.as_deref() {
-                        Some("Not charging" | "Discharging") => Some(0.0),
-                        _ => Some(1.0),
-                    }
-                }
-            }
-            _ => None,
-        };
-
         // Calculate ac_status.
         let ac_status = if let Some(pdcs) = pdcs {
             let connected = (pdcs & (1 << 0)) != 0;
@@ -213,11 +173,17 @@ fn main() {
             }
         };
 
+        // Calculate battery_percent.
+        let battery_percent = match (charge_now, charge_full) {
+            (Some(charge_now), Some(charge_full)) => Some(charge_now / charge_full * 100.0),
+            _ => None,
+        };
+
         // Calculate battery_status.
-        let battery_status = match status.as_deref() {
-            Some("Full") => Some("Full"),
-            Some("Charging") => Some("Charging"),
-            Some("Discharging") => Some("Discharging"),
+        let battery_status = match (ac_status, status.as_deref()) {
+            (_, Some("Full")) => Some("Full"),
+            (_, Some("Discharging")) => Some("Discharging"),
+            (Some("Connected"), Some("Charging")) => Some("Charging"),
             _ => {
                 // Probably "Unknown" or "Not charging". Use heuristics as a fallback.
                 let ordering = match (battery_percent, prev_battery_percent) {
@@ -238,6 +204,41 @@ fn main() {
                     }
                 }
             }
+        };
+
+        // Calculate secs_until_battery_full.
+        let vars = (charge_full, charge_now, voltage_min_design, power_now);
+        let secs_until_battery_full = match vars {
+            (Some(charge_full), Some(charge_now), Some(voltage_min_design), Some(power_now)) => {
+                let charge_delta = charge_full - charge_now;
+                let hours = charge_delta * voltage_min_design / power_now;
+                Some(hours * 3600.0)
+            }
+            _ => None,
+        };
+
+        // Calcuate secs_until_shutdown_request.
+        let vars = (charge_now, charge_shutdown, voltage_min_design, power_now);
+        let secs_until_shutdown_request = match vars {
+            (
+                Some(charge_now),
+                Some(charge_shutdown),
+                Some(voltage_min_design),
+                Some(power_now),
+            ) => {
+                if charge_now > charge_shutdown {
+                    let charge_delta = charge_now - charge_shutdown;
+                    let hours = charge_delta * voltage_min_design / power_now;
+                    Some(hours * 3600.0)
+                } else {
+                    match ac_status {
+                        // Avoid shutdown request while connected.
+                        Some("Connected") => Some(1.0),
+                        _ => Some(0.0),
+                    }
+                }
+            }
+            _ => None,
         };
 
         // Write to /run/vpower/*
