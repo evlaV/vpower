@@ -87,6 +87,25 @@ unsafe fn get_chip(name: *const c_char) -> *const sensors_chip_name {
     }
 }
 
+unsafe fn find_jupiter_chip() -> *const sensors_chip_name {
+    // New name for the sensor name in SteamOS 3.5
+    let mut chip = get_chip("steamdeck_hwmon\0".as_ptr() as *const c_char);
+    if !chip.is_null() {
+        println!("Using sensor: steamdeck_hwmon");
+        return chip;
+    }
+
+    // Fallback to old jupiter name for SteamOS 3.4
+    chip = get_chip("jupiter\0".as_ptr() as *const c_char);
+    if !chip.is_null() {
+        println!("Using sensor: jupiter");
+        return chip;
+    }
+
+    println!("Error: failed to find sensor");
+    return chip;
+}
+
 unsafe fn get_feature(chip: *const sensors_chip_name, feature_ty: c_int) -> *const sensors_feature {
     let mut nr = 0;
     loop {
@@ -137,7 +156,7 @@ impl Sensors {
         unsafe {
             sensors.initialized = sensors_init(ptr::null_mut()) == 0;
             if sensors.initialized {
-                sensors.chip = get_chip("jupiter\0".as_ptr() as *const c_char);
+                sensors.chip = find_jupiter_chip();
                 if !sensors.chip.is_null() {
                     sensors.pdvl_subfeature_num = get_subfeature_num(
                         sensors.chip,
