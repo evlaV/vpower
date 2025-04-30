@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fs;
 use std::io;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::thread;
@@ -16,8 +17,8 @@ struct Config {
     force_shutdown_timeout_secs: Option<f64>,
 }
 
-fn read_battery_string(var_name: &str) -> Option<String> {
-    let path = format!("/sys/class/power_supply/BAT1/{var_name}");
+fn read_battery_string(path_bat: &PathBuf, var_name: &str) -> Option<String> {
+    let path = format!("{}/{var_name}", path_bat.display());
     match fs::read_to_string(&path) {
         Err(err) => {
             eprintln!("read {path}: {err}");
@@ -27,8 +28,8 @@ fn read_battery_string(var_name: &str) -> Option<String> {
     }
 }
 
-fn read_battery_f64(var_name: &str) -> Option<f64> {
-    let path = format!("/sys/class/power_supply/BAT1/{var_name}");
+fn read_battery_f64(path_bat: &PathBuf, var_name: &str) -> Option<f64> {
+    let path = format!("{}/{var_name}", path_bat.display());
     match fs::read_to_string(&path) {
         Err(err) => {
             eprintln!("read {path}: {err}");
@@ -85,6 +86,41 @@ fn write_f64(dir_path: &str, var_name: &str, val: Option<f64>) {
 }
 
 fn main() {
+    // Try to find reasonable BATn to use (stop at the first),
+    // otherwise it's a system without battery -- bail-out
+    let mut path_bat = PathBuf::from("");
+    for i in 0..9 {
+	let path_string_test_base = format!("/sys/class/power_supply/BAT{i}");
+	let path_string_test = format!("{path_string_test_base}/type");
+	let path_bat_test = Path::new(&path_string_test);
+	if ! path_bat_test.exists() {
+	    continue;
+	}
+
+	let path_bat_test_type: String = fs::read_to_string(path_bat_test).expect("Cannot read path");
+	if path_bat_test_type.contains("Battery") {
+	    path_bat = PathBuf::from(path_string_test_base);
+	    println!("Found battery: {}", path_bat.display());
+	    break;
+	}
+    }
+    if ! path_bat.exists() {
+	println!("This system does not use batteries, stopping.");
+	return;
+    }
+
+    // Some files that the code further below will attempt to read
+    // every second (not all devices might provide them, probably
+    // better to keep running for partial functionality than stopping
+    // completely)
+    let bat_values_filenames = vec!["charge_full", "charge_now", "current_now", "status", "voltage_min_design", "voltage_now"];
+    for expected_file in bat_values_filenames.into_iter() {
+	let path_expected_file = PathBuf::from(format!("{}/{expected_file}", path_bat.display()));
+	if ! path_expected_file.exists() {
+	    println!("Warning: missing expected file: {}", path_expected_file.display());
+	}
+    }
+
     // Read /etc/vpower.toml
     let config_path = "/etc/vpower.toml";
     let mut request_shutdown_battery_percent = 0.49999998;
@@ -123,15 +159,15 @@ fn main() {
     // Every second:
     loop {
         // Read battery variables.
-        let charge_full = read_battery_f64("charge_full");
-        let charge_now = read_battery_f64("charge_now");
-        let current_now = read_battery_f64("current_now");
+        let charge_full = read_battery_f64(&path_bat, "charge_full");
+        let charge_now = read_battery_f64(&path_bat, "charge_now");
+        let current_now = read_battery_f64(&path_bat, "current_now");
         let pdam = sensors.pdam();
         let pdcs = sensors.pdcs();
         let pdvl = sensors.pdvl();
-        let status = read_battery_string("status");
-        let voltage_min_design = read_battery_f64("voltage_min_design");
-        let voltage_now = read_battery_f64("voltage_now");
+        let status = read_battery_string(&path_bat, "status");
+        let voltage_min_design = read_battery_f64(&path_bat, "voltage_min_design");
+        let voltage_now = read_battery_f64(&path_bat, "voltage_now");
 
         // Derive battery variables.
         let charge_shutdown = charge_full.map(|charge_full| {
