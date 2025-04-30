@@ -1,5 +1,6 @@
 [Unit]
 Description=vpower daemon
+ConditionPathExistsGlob=/sys/class/power_supply/BAT[0-9]
 
 [Service]
 ExecStart=/usr/lib/vpower
