@@ -10,6 +10,9 @@ use std::process::Command;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
+use std::sync::Mutex;
+use std::collections::HashSet;
+use lazy_static::lazy_static;
 
 #[derive(Deserialize)]
 struct Config {
@@ -17,11 +20,18 @@ struct Config {
     force_shutdown_timeout_secs: Option<f64>,
 }
 
+lazy_static! {
+    static ref failed: Mutex<HashSet<String>> = Default::default();
+}
+
 fn read_battery_string(path_bat: &PathBuf, var_name: &str) -> Option<String> {
     let path = format!("{}/{var_name}", path_bat.display());
     match fs::read_to_string(&path) {
         Err(err) => {
-            eprintln!("read {path}: {err}");
+            if !failed.lock().unwrap().contains(&path) {
+                eprintln!("read {path}: {err}");
+                failed.lock().unwrap().insert(path);
+            }
             None
         }
         Ok(string) => Some(string.trim().to_owned()),
@@ -32,7 +42,10 @@ fn read_battery_f64(path_bat: &PathBuf, var_name: &str) -> Option<f64> {
     let path = format!("{}/{var_name}", path_bat.display());
     match fs::read_to_string(&path) {
         Err(err) => {
-            eprintln!("read {path}: {err}");
+            if !failed.lock().unwrap().contains(&path) {
+                eprintln!("read {path}: {err}");
+                failed.lock().unwrap().insert(path);
+            }
             None
         }
         Ok(string) => match f64::from_str(string.trim()) {
