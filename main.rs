@@ -126,11 +126,48 @@ fn main() {
     // every second (not all devices might provide them, probably
     // better to keep running for partial functionality than stopping
     // completely)
-    let bat_values_filenames = vec!["charge_full", "charge_now", "current_now", "status", "voltage_min_design", "voltage_now"];
+    let bat_values_filenames = vec!["status", "voltage_min_design", "voltage_now"];
     for expected_file in bat_values_filenames.into_iter() {
 	let path_expected_file = PathBuf::from(format!("{}/{expected_file}", path_bat.display()));
 	if ! path_expected_file.exists() {
 	    println!("Warning: missing expected file: {}", path_expected_file.display());
+	}
+    }
+    // for the following files, names vary between charge_full/now
+    // (SteamDeck for example) and energy_full/now
+    let mut files_named_charge = true;
+    let bat_values_filenames_charge = vec!["charge_full", "charge_now"];
+    for expected_file in bat_values_filenames_charge.into_iter() {
+	let path_expected_file = PathBuf::from(format!("{}/{expected_file}", path_bat.display()));
+	if ! path_expected_file.exists() {
+	    // assume files are named energy_*
+	    files_named_charge = false;
+	    let expected_file_subst = expected_file.replace("charge_", "energy_");
+	    let path_expected_file_subst = PathBuf::from(format!("{}/{expected_file_subst}", path_bat.display()));
+	    if ! path_expected_file_subst.exists() {
+		println!("Warning: missing expected files: {} or {}", path_expected_file.display(), path_expected_file_subst.display());
+	    }
+	    else {
+		println!("Info: using {} (instead of '{}')", path_expected_file_subst.display(), expected_file);
+	    }
+	}
+    }
+    // the following name varies between current_now and power_now
+    let mut files_named_current = true;
+    let bat_values_filenames_current = vec!["current_now"];
+    for expected_file in bat_values_filenames_current.into_iter() {
+	let path_expected_file = PathBuf::from(format!("{}/{expected_file}", path_bat.display()));
+	if ! path_expected_file.exists() {
+	    // assume files are named power_*
+	    files_named_current = false;
+	    let expected_file_subst = expected_file.replace("current_", "power_");
+	    let path_expected_file_subst = PathBuf::from(format!("{}/{expected_file_subst}", path_bat.display()));
+	    if ! path_expected_file_subst.exists() {
+		println!("Warning: missing expected files: {} or {}", path_expected_file.display(), path_expected_file_subst.display());
+	    }
+	    else {
+		println!("Info: using {} (instead of '{}')", path_expected_file_subst.display(), expected_file);
+	    }
 	}
     }
 
@@ -172,9 +209,23 @@ fn main() {
     // Every second:
     loop {
         // Read battery variables.
-        let charge_full = read_battery_f64(&path_bat, "charge_full");
-        let charge_now = read_battery_f64(&path_bat, "charge_now");
-        let current_now = read_battery_f64(&path_bat, "current_now");
+	let (charge_full, charge_now) = if files_named_charge {
+	    // SteamDeck (and others)
+            ( read_battery_f64(&path_bat, "charge_full"), read_battery_f64(&path_bat, "charge_now") )
+	} else {
+	    // Units compared to charge_* files are different, but
+	    // these are used in values as ratios =now/full or
+	    // percentages, so should be fine as long as it's not
+	    // mixed or used in other ways
+            ( read_battery_f64(&path_bat, "energy_full"), read_battery_f64(&path_bat, "energy_now") )
+	};
+        let (current_now, power_now_from_file) = if files_named_current {
+	    // SteamDeck (and others)
+	    ( read_battery_f64(&path_bat, "current_now"), None )
+	}
+	else {
+	    ( None, read_battery_f64(&path_bat, "power_now") )
+	};
         let pdam = sensors.pdam();
         let pdcs = sensors.pdcs();
         let pdvl = sensors.pdvl();
@@ -190,6 +241,7 @@ fn main() {
 
         let power_now = match (voltage_now, current_now) {
             (Some(voltage_now), Some(current_now)) => Some(voltage_now * current_now),
+            (Some(voltage_now), None) => Some(power_now_from_file.expect("Error: Missing necessary data: power_now_from_file") * voltage_now),
             _ => None,
         };
 
