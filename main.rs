@@ -102,6 +102,7 @@ fn main() {
     // Try to find reasonable BATn to use (stop at the first),
     // otherwise it's a system without battery -- bail-out
     let mut path_bat = PathBuf::from("");
+    let path_ac = PathBuf::from("/sys/class/power_supply/ACAD");
     for i in 0..9 {
 	let path_string_test_base = format!("/sys/class/power_supply/BAT{i}");
 	let path_string_test = format!("{path_string_test_base}/type");
@@ -249,7 +250,6 @@ fn main() {
         let ac_status = if let Some(pdcs) = pdcs {
             let connected = (pdcs & (1 << 0)) != 0;
             let sink = (pdcs & (1 << 4)) == 0;
-            eprintln!("AC Status: conn:{connected:?} sink:{sink:?}");
             if connected && sink {
                 let was_disconnected = prev_ac_status == Some("Disconnected");
                 let pd_power = match (pdvl, pdam) {
@@ -268,10 +268,18 @@ fn main() {
                 Some("Disconnected")
             }
         } else {
-            match status.as_deref() {
-                Some("Full" | "Charging") => Some("Connected"),
-                Some("Discharging") => Some("Disconnected"),
-                _ => None,
+            let ac = read_battery_string(&path_ac, "online");
+            match ac.as_deref() {
+                Some("0") => Some("Disconnected"),
+                Some("1") => Some("Connected"),
+                None => {
+                    match status.as_deref() {
+                        Some("Full" | "Charging") => Some("Connected"),
+                        Some("Discharging") => Some("Disconnected"),
+                        _ => None,
+                    }
+                },
+             _ => Some("Disconnected"),
             }
         };
 
