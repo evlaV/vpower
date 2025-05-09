@@ -249,6 +249,7 @@ fn main() {
         let ac_status = if let Some(pdcs) = pdcs {
             let connected = (pdcs & (1 << 0)) != 0;
             let sink = (pdcs & (1 << 4)) == 0;
+            eprintln!("AC Status: conn:{connected:?} sink:{sink:?}");
             if connected && sink {
                 let was_disconnected = prev_ac_status == Some("Disconnected");
                 let pd_power = match (pdvl, pdam) {
