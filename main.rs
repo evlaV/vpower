@@ -99,10 +99,30 @@ fn write_f64(dir_path: &str, var_name: &str, val: Option<f64>) {
 }
 
 fn main() {
+    // Mains/AC
+    let mut path_ac = PathBuf::from("");
+    let power_supply_paths = fs::read_dir("/sys/class/power_supply/").unwrap();
+    for ps in power_supply_paths {
+	let path_string_test_base = PathBuf::from(ps.unwrap().path());
+	let path_string_test = format!("{}/type", path_string_test_base.display());
+	let path_test = Path::new(&path_string_test);
+	if ! path_test.exists() {
+	    continue;
+	}
+	let path_test_type: String = fs::read_to_string(path_test).expect("Cannot read path");
+	if path_test_type.contains("Mains") {
+	    path_ac = PathBuf::from(path_string_test_base);
+	    println!("Found AC power supply: '{}'", path_ac.display());
+	    break;
+	}
+    }
+    if ! path_ac.exists() {
+	println!("Warning: Could not find device for AC/Mains, some functionality might be missing or not accurate.");
+    }
+
     // Try to find reasonable BATn to use (stop at the first),
     // otherwise it's a system without battery -- bail-out
     let mut path_bat = PathBuf::from("");
-    let path_ac = PathBuf::from("/sys/class/power_supply/ACAD");
     for i in 0..9 {
 	let path_string_test_base = format!("/sys/class/power_supply/BAT{i}");
 	let path_string_test = format!("{path_string_test_base}/type");
