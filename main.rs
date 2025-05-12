@@ -13,6 +13,22 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::collections::HashSet;
 use lazy_static::lazy_static;
+use zbus::{blocking::Connection, proxy, Result, proxy::CacheProperties};
+
+#[proxy(
+    interface = "com.steampowered.SteamOSManager1.BatteryChargeLimit1",
+    default_service = "com.steampowered.SteamOSManager1",
+    default_path = "/com/steampowered/SteamOSManager1"
+)]
+trait ChargeLevel {
+    #[zbus(property)]
+    fn max_charge_level(&self) -> Result<i32>;
+}
+
+fn get_maxchargelevel_dbus(proxy: &ChargeLevelProxyBlocking) -> Result<i32> {
+    let reply = proxy.max_charge_level().unwrap_or(-1);
+    Ok(reply)
+}
 
 #[derive(Deserialize)]
 struct Config {
@@ -224,11 +240,24 @@ fn main() {
     let mut prev_ac_status: Option<&str> = None;
     let mut prev_battery_percent: Option<f64> = None;
 
+    // Initialize vars for D-BUS retrieval of battery level.
+    let connection = Connection::system().unwrap();
+    let proxy = ChargeLevelProxyBlocking::builder(&connection)
+	.cache_properties(CacheProperties::No) // ToDo: check why doesn't get updates about variables at the moment, could use :Lazily
+	.build()
+	.unwrap();
+
     // Start.
     println!("Running.");
 
     // Every second:
     loop {
+	// Get max charge battery level, if set, through D-BUS
+	let mut bat_maxchargelevel = get_maxchargelevel_dbus(&proxy).unwrap_or(100) as f64;
+	if bat_maxchargelevel < 0.0 || bat_maxchargelevel > 100.0 {
+	    bat_maxchargelevel = 100.0;
+	}
+
         // Read battery variables.
 	let (charge_full, charge_now) = if files_named_charge {
 	    // SteamDeck (and others)
@@ -308,12 +337,18 @@ fn main() {
             (Some(charge_now), Some(charge_full)) => Some(charge_now / charge_full * 100.0),
             _ => None,
         };
+	let battery_reached_maxchargelevel : bool = battery_percent > Some(f64::from(bat_maxchargelevel) - 1.01);
 
         // Calculate battery_status.
         let battery_status = match (ac_status, status.as_deref()) {
             (_, Some("Full")) => Some("Full"),
             (_, Some("Discharging")) => Some("Discharging"),
-            (Some("Connected"), Some("Charging")) => Some("Charging"),
+	    // Connected to AC/Mains but Battery 'Not charging', whether "Max Charge Level" reached (represented as "Full") or not
+            (Some("Connected"), Some("Not charging")) =>
+		if battery_reached_maxchargelevel { Some("Full") } else { Some("Not charging") },
+	    // Connected to AC/Mains and Battery 'Charging', whether "Max Charge Level" reached (="Full"), otherwise "Charging"
+            (Some("Connected"), Some("Charging")) =>
+		if battery_reached_maxchargelevel { Some("Full") } else { Some("Charging") },
             _ => {
                 // Probably "Unknown" or "Not charging". Use heuristics as a fallback.
                 let ordering = match (battery_percent, prev_battery_percent) {
@@ -340,8 +375,9 @@ fn main() {
         let vars = (charge_full, charge_now, voltage_min_design, power_now);
         let secs_until_battery_full = match vars {
             (Some(charge_full), Some(charge_now), Some(voltage_min_design), Some(power_now)) => {
-                let charge_delta = charge_full - charge_now;
-                let hours = charge_delta * voltage_min_design / power_now;
+		let charge_maxlevel = charge_full * (bat_maxchargelevel / 100.0);
+                let charge_delta = if charge_now < charge_maxlevel { charge_maxlevel - charge_now } else { 0.0 };
+                let hours = if charge_delta == 0.0 { 0.0 } else { charge_delta * voltage_min_design / power_now };
                 Some(hours * 3600.0)
             }
             _ => None,
