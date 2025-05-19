@@ -2,6 +2,7 @@
 Description=vpower daemon
 ConditionPathExistsGlob=/sys/class/power_supply/BAT[0-9]
 After=dbus.service steamos-manager.service
+BindsTo=steamos-manager.service
 
 [Service]
 ExecStart=/usr/lib/vpower
