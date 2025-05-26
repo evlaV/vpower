@@ -289,9 +289,10 @@ fn main() {
             charge_full * (rsbp / 100.0)
         });
 
-        let power_now = match (voltage_now, current_now) {
-            (Some(voltage_now), Some(current_now)) => Some(voltage_now * current_now),
-            (Some(voltage_now), None) => Some(power_now_from_file.expect("Error: Missing necessary data: power_now_from_file") * voltage_now),
+        let power_now = match (voltage_now, current_now, power_now_from_file) {
+            (Some(voltage_now), Some(current_now), _) => Some(voltage_now * current_now),
+            (Some(voltage_now), None, Some(power_now_from_file)) => Some(voltage_now * power_now_from_file),
+            (Some(voltage_now), None, None) => Some(voltage_now * 0.0),
             _ => None,
         };
 
