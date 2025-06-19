@@ -81,6 +81,27 @@ fn read_battery_f64(path_bat: &PathBuf, var_name: &str) -> Option<f64> {
     }
 }
 
+fn read_battery_maxchargelevel(path: &str) -> Option<f64> {
+    // retry 3 times
+    for i in 1..3 {
+	let bat_maxchargelevel_from_file = fs::read_to_string(path).unwrap_or("-1.0".to_string());
+	let bat_maxchargelevel = i32::from_str(&bat_maxchargelevel_from_file.trim()).unwrap_or(-1);
+
+	if bat_maxchargelevel > 0 {
+	    // success, returning supposedly good value
+	    return Some(bat_maxchargelevel as f64);
+	}
+	else {
+	    // problem, sleep and retry
+	    thread::sleep(Duration::from_millis(333));
+	}
+    }
+
+    // default
+    eprintln!("read '{path}': could not read from file 3 times in a row");
+    None
+}
+
 fn write_str(dir_path: &str, var_name: &str, val: Option<&str>) {
     let val = match val {
         Some(val) => val,
@@ -240,22 +261,36 @@ fn main() {
     let mut prev_ac_status: Option<&str> = None;
     let mut prev_battery_percent: Option<f64> = None;
 
-    // Initialize vars for D-BUS retrieval of battery level.
-    let connection = Connection::system().unwrap();
-    let proxy = ChargeLevelProxyBlocking::builder(&connection)
-	.cache_properties(CacheProperties::No) // ToDo: check why doesn't get updates about variables at the moment, could use :Lazily
-	.build()
-	.unwrap();
+    let mut last_bat_maxchargelevel = -999.9;
 
     // Start.
     println!("Running.");
 
     // Every second:
     loop {
-	// Get max charge battery level, if set, through D-BUS
-	let mut bat_maxchargelevel = get_maxchargelevel_dbus(&proxy).unwrap_or(100) as f64;
-	if bat_maxchargelevel < 0.0 || bat_maxchargelevel > 100.0 {
+	// Get max charge battery level, if set
+	let mut bat_maxchargelevel = match read_battery_maxchargelevel("/run/vpower/helper/bat_maxchargelevel") {
+	    None => -999.9,
+	    Some(val) => val,
+	};
+
+	// sanity check, if out of bounds either take from previous
+	// value (if looks ok-ish) or otherwise clamp to sane default
+	if (bat_maxchargelevel < 0.0 || bat_maxchargelevel > 100.0) && (last_bat_maxchargelevel >= 0.0 && last_bat_maxchargelevel <= 100.0) {
+	    bat_maxchargelevel = last_bat_maxchargelevel;
+	}
+	else if bat_maxchargelevel < 0.0 || bat_maxchargelevel > 100.0 {
 	    bat_maxchargelevel = 100.0;
+	}
+
+	// update value for next iteration
+	if bat_maxchargelevel != last_bat_maxchargelevel {
+	    last_bat_maxchargelevel = bat_maxchargelevel;
+
+	    // print new detected value, skipping first time (uninitialized)
+	    if last_bat_maxchargelevel >= 0.0 {
+		println!("New MaxChargeLevel value detected for battery = '{}'", last_bat_maxchargelevel);
+	    }
 	}
 
         // Read battery variables.
@@ -338,7 +373,7 @@ fn main() {
             (Some(charge_now), Some(charge_full)) => Some(charge_now / charge_full * 100.0),
             _ => None,
         };
-	let battery_reached_maxchargelevel : bool = battery_percent > Some(f64::from(bat_maxchargelevel) - 1.01);
+	let battery_reached_maxchargelevel : bool = battery_percent > Some(f64::from(bat_maxchargelevel) - 0.51);
 
         // Calculate battery_status.
         let battery_status = match (ac_status, status.as_deref()) {
