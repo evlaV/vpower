@@ -648,7 +648,7 @@ checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
 
 [[package]]
 name = "vpower"
-version = "1.5.4"
+version = "1.5.5"
 dependencies = [
  "lazy_static",
  "libc",
