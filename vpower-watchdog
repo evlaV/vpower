@@ -1,0 +1,76 @@
+#!/bin/bash
+
+VW_PROGRAM=$(basename "$0")
+VW_DATA_DIR_PATH=${VW_DATA_DIR_PATH:-/run/vpower}
+VW_ALLOWED_OUTDATED_SECONDS=${VW_ALLOWED_OUTDATED_SECONDS:-10}
+VW_DELAYED_START_SECONDS=${VW_DELAYED_START_SECONDS:-3}
+VW_LOOP_DELAY_SECONDS=${VW_LOOP_DELAY_SECONDS:-10}
+
+error() {
+    local msg="$*"
+    echo -e "${VW_PROGRAM} @ $(date +'%FT%T'): error: ${msg}" >&2
+}
+
+echo "VW_* vars (environment):"
+env | grep '^VW_'
+echo "VW_* vars (local):"
+declare -p | grep ' VW_'
+
+
+# grace period to start (vpower needs to read data and start writing files)
+echo "Sleeping for ${VW_DELAYED_START_SECONDS}s as grace period for vpower to start working"
+sleep "${VW_DELAYED_START_SECONDS}"s
+
+declare counter=0
+while :; do
+    if ! ls "${VW_DATA_DIR_PATH}"/* &> /dev/null; then
+	error "no files in '${VW_DATA_DIR_PATH}', aborting"
+	exit 1
+    fi
+
+    declare -a output=()
+    for f in "${VW_DATA_DIR_PATH}"/*; do
+	declare -a line
+	read -r -a line < <(stat --format '%Z %z %n' "${f}")
+	#echo "line read: ${line[@]}"
+	#example: 1752530261 2025-07-14 23:57:41.575013289 +0200 /run/vpower/battery_percent
+
+	if [[ "${line[0]}" =~ ^[0-9]{10,}$ ]]; then
+	    ts=$(date +'%s')
+	    diff=$(( ts - line[0] ))
+	    if [[ "${diff}" -gt "${VW_ALLOWED_OUTDATED_SECONDS}" ]]; then
+		output+=(" - ${line[*]:1} (not updated for ${diff}s)")
+	    fi
+	else
+	    error "the first word doesn't match the expected format (timestamp in Unix epoch): '${line[0]}'"
+	    exit 1
+	fi
+
+    done
+
+    if [[ "${#output[@]}" -gt 0 ]]; then
+	((counter++))
+
+	error "vpower apparently stuck/stopped, files not updated (counter=${counter})"
+	for out_line in "${output[@]}"; do
+	    error "${out_line[*]}"
+	done
+
+	if [[ "${counter}" -gt 2 ]]; then
+	    error "trying to recover vpower (systemctl restart)"
+	    systemctl restart vpower.service
+	    counter=0
+	fi
+    else
+	# reset counter, it could have been a transient "problem"
+	# (e.g. outdated files due to coming back from suspension)
+	if [[ "${counter}" -ne 0 ]]; then
+	    error "vpower not detected as stuck/stopped now, resetting counter"
+	fi
+	counter=0
+    fi
+
+    sleep "${VW_LOOP_DELAY_SECONDS}"s
+done
+
+exit 0
