@@ -1,0 +1,12 @@
+[Unit]
+Description=Watchdog for vpower daemon
+ConditionPathExistsGlob=/sys/class/power_supply/BAT[0-9]
+After=dbus.service steamos-manager.service vpower.service
+
+[Service]
+ExecStart=/usr/lib/vpower-watchdog
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
