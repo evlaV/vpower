@@ -348,7 +348,7 @@ fn main() {
 	};
         let (current_now, power_now_from_file) = if files_named_current {
 	    // SteamDeck (and others)
-	    ( Some(read_battery_f64(&path_bat, "current_now").expect("Cannot read current_now").abs()), None )
+	    ( Some(read_battery_f64(&path_bat, "current_now").unwrap_or(0.0).abs()), None )
 	}
 	else {
 	    ( None, read_battery_f64(&path_bat, "power_now") )
