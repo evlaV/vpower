@@ -300,11 +300,19 @@ fn main() {
 
     let mut last_bat_maxchargelevel = -999.9;
 
+    let mut loop_counter : u64 = 0;
+    let mut attempts_to_read_current_now : u64 = 0;
+    let mut attempts_to_read_power_now : u64 = 0;
+    let mut failed_to_read_current_now : u64 = 0;
+    let mut failed_to_read_power_now : u64 = 0;
+
     // Start.
     println!("Running.");
 
     // Every second:
     loop {
+	loop_counter += 1;
+
 	// Get max charge battery level, if set
 	let mut bat_maxchargelevel = match path_maxchargelevel_file_found {
 	    false => 100.0,
@@ -348,10 +356,38 @@ fn main() {
 	};
         let (current_now, power_now_from_file) = if files_named_current {
 	    // SteamDeck (and others)
-	    ( Some(read_battery_f64(&path_bat, "current_now").unwrap_or(0.0).abs()), None )
+	    attempts_to_read_current_now += 1;
+	    let current_now_value = match read_battery_f64(&path_bat, "current_now") {
+		Some(v) => v.abs(), // use absolute value
+		None => {
+		    failed_to_read_current_now += 1;
+		    if (failed_to_read_current_now % 60) == 1 {
+			eprintln!("read {}/current_now: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
+				  path_bat.display(),
+				  failed_to_read_current_now,
+				  attempts_to_read_current_now);
+		    }
+		    0.0
+		}
+	    };
+	    ( Some(current_now_value), None )
 	}
 	else {
-	    ( None, read_battery_f64(&path_bat, "power_now") )
+	    attempts_to_read_power_now += 1;
+	    let power_now_value = match read_battery_f64(&path_bat, "power_now") {
+		Some(v) => v,
+		None => {
+		    failed_to_read_power_now += 1;
+		    if (failed_to_read_power_now % 60) == 1 {
+			eprintln!("read {}/power_now: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
+				  path_bat.display(),
+				  failed_to_read_power_now,
+				  attempts_to_read_power_now);
+		    }
+		    0.0
+		}
+	    };
+	    ( None, Some(power_now_value) )
 	};
         let pdam = sensors.pdam();
         let pdcs = sensors.pdcs();
