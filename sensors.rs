@@ -91,18 +91,18 @@ unsafe fn find_jupiter_chip() -> *const sensors_chip_name {
     // New name for the sensor name in SteamOS 3.5
     let mut chip = get_chip("steamdeck_hwmon\0".as_ptr() as *const c_char);
     if !chip.is_null() {
-        println!("Using sensor: steamdeck_hwmon");
+        println!("Info: Init: Using sensor: steamdeck_hwmon");
         return chip;
     }
 
     // Fallback to old jupiter name for SteamOS 3.4
     chip = get_chip("jupiter\0".as_ptr() as *const c_char);
     if !chip.is_null() {
-        println!("Using sensor: jupiter");
+        println!("Info: Init: Using sensor: jupiter");
         return chip;
     }
 
-    println!("Error: failed to find sensor");
+    println!("Warning: Init: Failed to find sensor");
     return chip;
 }
 

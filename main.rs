@@ -129,6 +129,34 @@ fn write_f64(dir_path: &str, var_name: &str, val: Option<f64>) {
 }
 
 fn main() {
+    // Print version info
+    let version = env!("CARGO_PKG_VERSION");
+    let name = env!("CARGO_PKG_NAME");
+    println!("{name} version {version}");
+
+    // Read /etc/vpower.toml
+    let config_path = "/etc/vpower.toml";
+    let mut request_shutdown_battery_percent = 0.49999998;
+    let mut force_shutdown_timeout_secs = 10.0;
+    match fs::read(config_path) {
+        Err(err) => eprintln!("read {config_path}: {err}"),
+
+        Ok(bytes) => match toml::from_slice::<Config>(&bytes) {
+            Err(err) => eprintln!("read {config_path}: {err}"),
+
+            Ok(config) => {
+                if let Some(value) = config.request_shutdown_battery_percent {
+                    request_shutdown_battery_percent = value;
+                }
+                if let Some(value) = config.force_shutdown_timeout_secs {
+                    force_shutdown_timeout_secs = value;
+                }
+            }
+        },
+    }
+    println!("Info: Config: request_shutdown_battery_percent: {request_shutdown_battery_percent}");
+    println!("Info: Config: force_shutdown_timeout_secs: {force_shutdown_timeout_secs}");
+
     // Mains/AC
     let mut path_ac = PathBuf::from("");
     let power_supply_paths = fs::read_dir("/sys/class/power_supply/").unwrap();
@@ -142,7 +170,7 @@ fn main() {
 	let path_test_type: String = fs::read_to_string(path_test).expect("Cannot read path");
 	if path_test_type.contains("Mains") {
 	    path_ac = PathBuf::from(path_string_test_base);
-	    println!("Found AC power supply: '{}'", path_ac.display());
+	    println!("Info: Init: Found AC power supply: '{}'", path_ac.display());
 	    break;
 	}
     }
@@ -164,12 +192,12 @@ fn main() {
 	let path_bat_test_type: String = fs::read_to_string(path_bat_test).expect("Cannot read path");
 	if path_bat_test_type.contains("Battery") {
 	    path_bat = PathBuf::from(path_string_test_base);
-	    println!("Found battery: {}", path_bat.display());
+	    println!("Info: Init: Found battery: '{}'", path_bat.display());
 	    break;
 	}
     }
     if ! path_bat.exists() {
-	println!("This system does not use batteries, stopping.");
+	println!("Info: Init: This system does not use batteries, stopping.");
 	return;
     }
 
@@ -181,7 +209,7 @@ fn main() {
     for expected_file in bat_values_filenames.into_iter() {
 	let path_expected_file = PathBuf::from(format!("{}/{expected_file}", path_bat.display()));
 	if ! path_expected_file.exists() {
-	    println!("Warning: missing expected file: {}", path_expected_file.display());
+	    println!("Warning: Init: Missing expected file: '{}'", path_expected_file.display());
 	}
     }
     // for the following files, names vary between charge_full/now
@@ -196,10 +224,10 @@ fn main() {
 	    let expected_file_subst = expected_file.replace("charge_", "energy_");
 	    let path_expected_file_subst = PathBuf::from(format!("{}/{expected_file_subst}", path_bat.display()));
 	    if ! path_expected_file_subst.exists() {
-		println!("Warning: missing expected files: {} or {}", path_expected_file.display(), path_expected_file_subst.display());
+		println!("Warning: Init: Missing expected files: '{}' or '{}'", path_expected_file.display(), path_expected_file_subst.display());
 	    }
 	    else {
-		println!("Info: using {} (instead of '{}')", path_expected_file_subst.display(), expected_file);
+		println!("Info: Init: Using '{}' (instead of '{}')", path_expected_file_subst.display(), expected_file);
 	    }
 	}
     }
@@ -214,10 +242,10 @@ fn main() {
 	    let expected_file_subst = expected_file.replace("current_", "power_");
 	    let path_expected_file_subst = PathBuf::from(format!("{}/{expected_file_subst}", path_bat.display()));
 	    if ! path_expected_file_subst.exists() {
-		println!("Warning: missing expected files: {} or {}", path_expected_file.display(), path_expected_file_subst.display());
+		println!("Warning: Init: Missing expected files: '{}' or '{}'", path_expected_file.display(), path_expected_file_subst.display());
 	    }
 	    else {
-		println!("Info: using {} (instead of '{}')", path_expected_file_subst.display(), expected_file);
+		println!("Info: Init: Using '{}' (instead of '{}')", path_expected_file_subst.display(), expected_file);
 	    }
 	}
     }
@@ -234,7 +262,7 @@ fn main() {
     for maxchargelevel_file in maxchargelevel_filenames.into_iter() {
 	path_maxchargelevel_file = PathBuf::from(maxchargelevel_file);
 	if path_maxchargelevel_file.exists() {
-	    println!("Info: using {} file for reading battery's MaxChargeLevel feature", path_maxchargelevel_file.display());
+	    println!("Info: Init: MaxChargeLevel feature: using '{}'", path_maxchargelevel_file.display());
 	    break;
 	}
 	else {
@@ -243,37 +271,12 @@ fn main() {
 	}
     }
     let path_maxchargelevel_file_found = if path_maxchargelevel_file.display().to_string().is_empty() {
-	println!("Warning: cound not find suitable file for reading battery's MaxChargeLevel feature, assuming MaxChargeLevel=100%");
+	println!("Warning: Init: MaxChargeLevel feature: Cound not find suitable file, assuming MaxChargeLevel=100%");
 	false
     }
     else {
 	true
     };
-
-    // Read /etc/vpower.toml
-    let config_path = "/etc/vpower.toml";
-    let mut request_shutdown_battery_percent = 0.49999998;
-    let mut force_shutdown_timeout_secs = 10.0;
-
-    match fs::read(config_path) {
-        Err(err) => eprintln!("read {config_path}: {err}"),
-
-        Ok(bytes) => match toml::from_slice::<Config>(&bytes) {
-            Err(err) => eprintln!("read {config_path}: {err}"),
-
-            Ok(config) => {
-                if let Some(value) = config.request_shutdown_battery_percent {
-                    request_shutdown_battery_percent = value;
-                }
-                if let Some(value) = config.force_shutdown_timeout_secs {
-                    force_shutdown_timeout_secs = value;
-                }
-            }
-        },
-    }
-
-    println!("request_shutdown_battery_percent: {request_shutdown_battery_percent}");
-    println!("force_shutdown_timeout_secs: {force_shutdown_timeout_secs}");
 
     // Initialize libsensors.
     let sensors = Sensors::new();
@@ -291,7 +294,7 @@ fn main() {
     let mut failed_to_read_power_now : u64 = 0;
 
     // Start.
-    println!("Running.");
+    println!("Info: Running.");
 
     // Every second:
     loop {
@@ -323,7 +326,7 @@ fn main() {
 
 	    // print new detected value, skipping first time (uninitialized)
 	    if last_bat_maxchargelevel >= 0.0 {
-		println!("New MaxChargeLevel value detected for battery = '{}'", last_bat_maxchargelevel);
+		println!("Info: New MaxChargeLevel value detected for battery = {}%", last_bat_maxchargelevel);
 	    }
 	}
 
