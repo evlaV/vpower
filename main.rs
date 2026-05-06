@@ -290,10 +290,19 @@ fn main() {
 
     // Initialize libsensors.
     let sensors = Sensors::new();
+    if sensors.pdvl() == None || sensors.pdam() == None {
+	println!("Info: Init: Steam Deck sensors: Cannot read Power Delivery values for the AC Adapter (not a Steam Deck)");
+    }
+    else {
+	println!("Info: Init: Steam Deck sensors: Can read Power Delivery values for the AC Adapter");
+    }
 
     // Keep for heuristics.
     let mut prev_ac_status: Option<&str> = None;
     let mut prev_battery_percent: Option<f64> = None;
+    let mut prev_battery_percent_hist: [f64; 9] = [-1.0; 9];
+
+    let mut warning_emitted_charger_low_energy: bool = false;
 
     let mut last_bat_maxchargelevel = -999.9;
 
@@ -302,6 +311,9 @@ fn main() {
     let mut attempts_to_read_power_now : u64 = 0;
     let mut failed_to_read_current_now : u64 = 0;
     let mut failed_to_read_power_now : u64 = 0;
+
+    let mut ac_status_last_change : Option<&str> = None;
+    let mut ac_status_last_change_at_loop : u64 = 0;
 
     // Start.
     println!("Info: Running.");
@@ -386,9 +398,7 @@ fn main() {
 	    };
 	    ( None, Some(power_now_value) )
 	};
-        let pdam = sensors.pdam();
-        let pdcs = sensors.pdcs();
-        let pdvl = sensors.pdvl();
+
         let status = read_battery_string(&path_bat, "status");
         let voltage_min_design = read_battery_f64(&path_bat, "voltage_min_design");
         let voltage_now = read_battery_f64(&path_bat, "voltage_now");
@@ -407,34 +417,26 @@ fn main() {
         };
 
         // Calculate ac_status.
-        let ac_status = if let Some(pdcs) = pdcs {
-            let connected = (pdcs & (1 << 0)) != 0;
-            let sink = (pdcs & (1 << 4)) == 0;
-            if connected && sink {
-                let was_disconnected = prev_ac_status == Some("Disconnected");
-                let pd_power = match (pdvl, pdam) {
-                    (Some(pdvl), Some(pdam)) => pdvl * pdam, // Watts.
-                    _ => 0.0,
-                };
-
-                // Basically all power supplies get reported as low power for ~0.5 seconds
-                // after connecting, so ignore it on the first iteration after connecting.
-                if !was_disconnected && pd_power > 0.0 && pd_power < 30.0 {
-                    Some("Connected slow")
-                } else {
-                    Some("Connected")
-                }
-            } else {
-                Some("Disconnected")
-            }
-        } else {
+        let mut ac_status = {
             let ac = read_battery_string(&path_ac, "online");
             match ac.as_deref() {
                 Some("0") => Some("Disconnected"),
-                Some("1") => Some("Connected"),
+                Some("1") => {
+		    // Assume that it's a capable AC adapter for now in the
+		    // first iterations, as it is the most likely.  It will be
+		    // reclassified as "Connected slow" later, if not providing
+		    // enough energy and the battery is discharging.  If it was
+		    // already classified as "Connected slow", keep that.
+		    if ac_status_last_change == Some("Connected slow") {
+			Some("Connected slow")
+		    }
+		    else {
+			Some("Connected")
+		    }
+		},
                 None => {
                     match status.as_deref() {
-                        Some("Full" | "Charging") => Some("Connected"),
+                        Some("Full" | "Charging" | "Not charging") => if ac_status_last_change == Some("Connected slow") { Some("Connected slow") } else { Some("Connected") },
                         Some("Discharging") => Some("Disconnected"),
                         _ => None,
                     }
@@ -443,23 +445,97 @@ fn main() {
             }
         };
 
+	// Register the last change of ac_status (to grant a grace period and
+	// calculate later if it's charging or discharging)
+	if prev_ac_status != ac_status {
+	    ac_status_last_change = prev_ac_status;
+	    ac_status_last_change_at_loop = loop_counter;
+	}
+	// Still, if uninitialized, change from None to the current one, to
+	// indicate no change since the start.
+	if ac_status_last_change == None {
+	    ac_status_last_change = ac_status;
+	    ac_status_last_change_at_loop = loop_counter;
+	}
+
+	// On AC adapter disconnection, reset var preventing to repeat warnings
+	// about adapter/charger providing insufficient energy
+	if ! (ac_status == Some("Connected") || ac_status == Some("Connected slow")) {
+	    warning_emitted_charger_low_energy = false;
+	}
+
+	// Calculate energy input on the SteamDeck
+	let pdam = sensors.pdam();
+	let pdvl = sensors.pdvl();
+	let pd_power = match (pdvl, pdam) {
+	    (Some(pdvl), Some(pdam)) => pdvl * pdam, // Watts.
+	    _ => 0.0,
+	};
+
         // Calculate battery_percent.
         let battery_percent = match (charge_now, charge_full) {
             (Some(charge_now), Some(charge_full)) => Some(charge_now / charge_full * 100.0),
             _ => None,
         };
-	let battery_reached_maxchargelevel : bool = battery_percent > Some(f64::from(bat_maxchargelevel) - 0.51);
+	let battery_reached_maxchargelevel : bool = battery_percent > Some(f64::from(bat_maxchargelevel) * 0.90);
+
+	// In case that some are the default values (happens in the first
+	// cycles), fill in with most recent value.
+	for i in 0..prev_battery_percent_hist.len() {
+	    if prev_battery_percent_hist[i] < 0.0 {
+		prev_battery_percent_hist[i] = battery_percent.unwrap_or(-1.0);
+	    }
+	}
+	// Calculate average battery charge %
+	let prev_battery_percent_hist_avg =
+	    prev_battery_percent_hist.iter().sum::<f64>() / prev_battery_percent_hist.len() as f64;
 
         // Calculate battery_status.
         let battery_status = match (ac_status, status.as_deref()) {
             (_, Some("Full")) => Some("Full"),
             (_, Some("Discharging")) => Some("Discharging"),
-	    // Connected to AC/Mains but Battery 'Not charging', whether "Max Charge Level" reached (represented as "Full") or not
-            (Some("Connected"), Some("Not charging")) =>
-		if battery_reached_maxchargelevel { Some("Full") } else { Some("Not charging") },
-	    // Connected to AC/Mains and Battery 'Charging', whether "Max Charge Level" reached (="Full"), otherwise "Charging"
-            (Some("Connected"), Some("Charging")) =>
-		if battery_reached_maxchargelevel { Some("Full") } else { Some("Charging") },
+	    // Connected to AC/Mains, whether "Max Charge Level" reached
+	    // (="Full"), or if "Charging" or "Discharging" even if not declared
+	    // when querying the hardware's status
+            (Some("Connected") | Some("Connected slow"), Some("Charging") | Some("Not charging")) =>
+		if status.as_deref() == Some("Not charging") && battery_reached_maxchargelevel {
+		    Some("Full")
+		} else {
+		    // Check if the battery is actually charging or discharging,
+		    // by comparing to previous percentage of charge.  The
+		    // SteamDeck sometimes reports 'Charging' (literal content
+		    // of /sys/class/power_supply/BAT1/status) even when the
+		    // adapter/charger does not provide enough energy and the
+		    // battery is actually (slowly) discharging, so it has to be
+		    // fixed.
+		    if battery_percent == None || prev_battery_percent == None {
+			// In the 1st loop we actually don't know
+			Some("Unknown")
+		    }
+		    else if battery_percent > prev_battery_percent
+			|| battery_percent.unwrap_or(-1.0) > prev_battery_percent_hist_avg {
+			    Some("Charging")
+			}
+		    else if battery_percent == prev_battery_percent
+			&& battery_percent.unwrap_or(-1.0) == prev_battery_percent_hist_avg {
+			    // In the SteamDecks at least, when charging with
+			    // powerful enough chargers it is updating every second,
+			    // but when disconnected or using chargers not providing
+			    // enough energy and slowly discharging, the
+			    // battery-charge-% value is not updated for several
+			    // seconds, so for several cycles "battery_percent ==
+			    // prev_battery_percent".
+			    Some("Not charging")
+			}
+		    else {
+			// Print error/warning only once (until ac_status
+			// changes), waiting a few cycles to stabilize
+			if (loop_counter - ac_status_last_change_at_loop) == 5 && ! warning_emitted_charger_low_energy {
+			    println!("Warning: AC Adapter connected but battery is actually discharging");
+			}
+			Some("Discharging")
+		    }
+		},
             _ => {
                 // Probably "Unknown" or "Not charging". Use heuristics as a fallback.
                 let ordering = match (battery_percent, prev_battery_percent) {
@@ -481,6 +557,52 @@ fn main() {
                 }
             }
         };
+
+	// If AC adapter is Connected as was not initially detected as providing
+	// insufficient energy ("weak charger"), but nevertheless does not
+	// provide sufficient energy and the battery_status is actually
+	// Discharging, consider it "slow".  Also the other way around.
+	//
+	// This has to be evaluated after battery_status is calculated to
+	// 'Discharging' (or 'Charging') for the same reasons explained there,
+	// and giving some grace period to the connection to settle.
+	if ac_status == Some("Connected") && battery_status == Some("Discharging") {
+	    if (loop_counter - ac_status_last_change_at_loop) >= 5 {
+		ac_status = Some("Connected slow");
+	    }
+	}
+	if ac_status == Some("Connected slow") && battery_status == Some("Charging") {
+	    if (loop_counter - ac_status_last_change_at_loop) >= 5 {
+		ac_status = Some("Connected");
+	    }
+	}
+
+	// Print info about AC adapter status changes (connection/disconnection)
+	//
+	// Note: skip first loop (#1, not #0) as some variables related to
+	// calculation of charging/discharging might not be accurate (needs the
+	// 2nd cycle to be able to compare with the %-charge of 1st cycle, etc).
+	if loop_counter > 1 {
+	    let mut energy_input_str = "".to_string();
+	    if (ac_status == Some("Connected") || ac_status == Some("Connected slow")) && pd_power > 0.0 {
+		energy_input_str = format!(" at {pd_power}W");
+	    }
+
+	    let mut charge_str = "unknown".to_string();
+	    if battery_percent.unwrap_or(-1.0) >= 0.0 {
+		charge_str = format!("{:.2}%", battery_percent.unwrap_or(-1.0));
+	    }
+
+	    if loop_counter == 2 {
+		println!("Info: AC Adapter status at start: '{}'{energy_input_str}, battery {charge_str}, status: '{}'",
+			 ac_status.unwrap_or("None"), battery_status.unwrap_or("None"));
+	    }
+	    else if (loop_counter - ac_status_last_change_at_loop) == 5 && ac_status_last_change != ac_status {
+		println!("Info: AC Adapter status changed '{}'->'{}'{energy_input_str}, battery {charge_str}, status: '{}'",
+			 ac_status_last_change.unwrap_or("None"), ac_status.unwrap_or("None"),
+			 battery_status.unwrap_or("None"));
+	    }
+	}
 
         // Calculate secs_until_battery_full.
         let vars = (charge_full, charge_now, voltage_min_design, power_now);
@@ -546,9 +668,37 @@ fn main() {
             }
         }
 
+	// Print if battery_percent (as int) changes, if >= 10% every 5%,
+	// otherwise every 1%
+	let prev_battery_percent_int = prev_battery_percent.unwrap_or(-1.0).round() as i32;
+	let cur_battery_percent_int = battery_percent.unwrap_or(-1.0).round() as i32;
+	if prev_battery_percent_int >= 0 && cur_battery_percent_int >= 0 {
+	    let arrow = if cur_battery_percent_int > prev_battery_percent_int { "(+)" } else { "(-)" };
+	    if cur_battery_percent_int > 20
+		&& prev_battery_percent_int != cur_battery_percent_int
+		&& (cur_battery_percent_int % 10 == 5 || cur_battery_percent_int % 10 == 0)
+	    {
+		println!("Info: Battery charge: {:2}% {arrow}", cur_battery_percent_int);
+	    }
+	    else if cur_battery_percent_int <= 20 && prev_battery_percent_int != cur_battery_percent_int {
+		println!("Info: Battery charge: {:2}% {arrow}", cur_battery_percent_int);
+		// alternative version:
+		// println!("Info: Battery charge: {}%->{}%", prev_battery_percent_int, cur_battery_percent_int);
+	    }
+	}
+
         // Update prev_*.
         prev_ac_status = ac_status;
         prev_battery_percent = battery_percent;
+
+	// Update history of battery_percent values
+        prev_battery_percent_hist.rotate_right(1);
+        prev_battery_percent_hist[0] = battery_percent.unwrap_or(-1.0);
+	if DEBUG {
+	    if loop_counter % 10 == 0 && (battery_status == Some("Discharging") || battery_status == Some("Not charging")) {
+		println!("DBG: battery charge: cur={:.3}% avg={:.3?}%", prev_battery_percent.unwrap_or(-1.0), prev_battery_percent_hist_avg);
+	    }
+	}
 
         // Sleep until next iteration.
         thread::sleep(Duration::from_secs(1));
