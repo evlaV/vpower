@@ -13,22 +13,6 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::collections::HashSet;
 use lazy_static::lazy_static;
-use zbus::{blocking::Connection, proxy, Result, proxy::CacheProperties};
-
-#[proxy(
-    interface = "com.steampowered.SteamOSManager1.BatteryChargeLimit1",
-    default_service = "com.steampowered.SteamOSManager1",
-    default_path = "/com/steampowered/SteamOSManager1"
-)]
-trait ChargeLevel {
-    #[zbus(property)]
-    fn max_charge_level(&self) -> Result<i32>;
-}
-
-fn get_maxchargelevel_dbus(proxy: &ChargeLevelProxyBlocking) -> Result<i32> {
-    let reply = proxy.max_charge_level().unwrap_or(-1);
-    Ok(reply)
-}
 
 #[derive(Deserialize)]
 struct Config {
