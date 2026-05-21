@@ -175,6 +175,9 @@ impl Sensors {
         sensors
     }
 
+    // Not used right now but kept as legacy or in case of future use (quell
+    // compiler warnings).
+    #[allow(dead_code)]
     fn path(&self) -> Option<String> {
         if self.chip.is_null() {
             None
@@ -186,6 +189,9 @@ impl Sensors {
         }
     }
 
+    // Not used right now but kept as legacy or in case of future use (quell
+    // compiler warnings).
+    #[allow(dead_code)]
     // PD contract status.
     pub fn pdcs(&self) -> Option<u8> {
         if let Some(path) = self.path() {
