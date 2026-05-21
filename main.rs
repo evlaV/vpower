@@ -134,6 +134,16 @@ fn main() {
     let name = env!("CARGO_PKG_NAME");
     println!("{name} version {version}");
 
+    // Debug?
+    #[allow(non_snake_case)]
+    let DEBUG = std::env::var("VPOWER_DEBUG")
+        .map(|v| matches!(v.to_lowercase().as_str(), "yes" | "y" | "1"))
+        .unwrap_or(false)
+	|| cfg!(debug_assertions);
+    if DEBUG {
+        println!("DBG: Debug mode enabled");
+    }
+
     // Read /etc/vpower.toml
     let config_path = "/etc/vpower.toml";
     let mut request_shutdown_battery_percent = 0.49999998;
