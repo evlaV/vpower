@@ -269,24 +269,27 @@ fn main() {
 	&maxchargelevel_path_std,
     ];
     let mut path_maxchargelevel_file = PathBuf::from("");
+    let mut path_chargetypes_file = PathBuf::from("");
     for maxchargelevel_file in maxchargelevel_filenames.into_iter() {
-	path_maxchargelevel_file = PathBuf::from(maxchargelevel_file);
-	if path_maxchargelevel_file.exists() {
+	if PathBuf::from(maxchargelevel_file).exists() {
+	    path_maxchargelevel_file = PathBuf::from(maxchargelevel_file);
 	    println!("Info: Init: MaxChargeLevel feature: using '{}'", path_maxchargelevel_file.display());
 	    break;
 	}
+    }
+    if path_maxchargelevel_file.as_os_str().is_empty() {
+	println!("Warning: Init: MaxChargeLevel feature: Cound not find suitable file for direct retrieval");
+
+	// Indirect MaxChargeLevel retrieval.  For systems with charge_types = "Long
+	// Life", like Lenovo Legion Go S, will assume 80%.
+	if PathBuf::from(format!("{}/charge_types", path_bat.display())).exists() {
+	    path_chargetypes_file = PathBuf::from(format!("{}/charge_types", path_bat.display()));
+	    println!("Info: Init: MaxChargeLevel feature: using indirect file '{}'", path_chargetypes_file.display());
+	}
 	else {
-	    // reset to default for later use (empty means that file was not found)
-	    path_maxchargelevel_file = PathBuf::from("");
+	    println!("Warning: Init: MaxChargeLevel feature: Cound not find suitable indirect file (charge_types) either, assuming MaxChargeLevel=100%");
 	}
     }
-    let path_maxchargelevel_file_found = if path_maxchargelevel_file.display().to_string().is_empty() {
-	println!("Warning: Init: MaxChargeLevel feature: Cound not find suitable file, assuming MaxChargeLevel=100%");
-	false
-    }
-    else {
-	true
-    };
 
     // Initialize libsensors.
     let sensors = Sensors::new();
@@ -324,13 +327,25 @@ fn main() {
 	loop_counter += 1;
 
 	// Get max charge battery level, if set
-	let mut bat_maxchargelevel = match path_maxchargelevel_file_found {
-	    false => 100.0,
-	    true  => match read_battery_maxchargelevel(&path_maxchargelevel_file.display().to_string()) {
+	let mut bat_maxchargelevel = 100.0;
+	if ! path_maxchargelevel_file.as_os_str().is_empty() {
+	    bat_maxchargelevel = match read_battery_maxchargelevel(&path_maxchargelevel_file.display().to_string()) {
 		None       => -999.9,
 		Some(val)  => val
-	    },
-	};
+	    };
+	}
+	else {
+	    // Get max charge battery level indirectly (charge_types='Long Life'
+	    // is assumed to limit to 80% (Lenovo Legion Go S models), otherwise
+	    // assume 100%)
+	    if ! path_chargetypes_file.as_os_str().is_empty() {
+		if let Some(content) = read_battery_string(&path_bat, "charge_types") {
+		    if content.contains("[Long Life]") {
+			bat_maxchargelevel = 80.0;
+		    }
+		}
+	    }
+	}
 
 	// sanity check, if out of bounds either take from previous
 	// value (if looks ok-ish) or otherwise clamp to sane default
