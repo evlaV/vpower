@@ -631,7 +631,9 @@ fn main() {
 	if loop_counter > 1 {
 	    let mut energy_input_str = "".to_string();
 	    if (ac_status == Some("Connected") || ac_status == Some("Connected slow")) && pd_power > 0.0 {
-		energy_input_str = format!(" at {pd_power}W");
+		energy_input_str = format!(" at {}W",
+					   // print up to 2 decimal places, but trimming trailing zeros or '.'
+					   format!("{:.2}", pd_power).trim_end_matches('0').trim_end_matches('.').to_string());
 	    }
 
 	    let mut charge_str = "unknown".to_string();
