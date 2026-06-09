@@ -303,6 +303,7 @@ fn main() {
     let mut prev_battery_percent_hist: [f64; 9] = [-1.0; 9];
 
     let mut warning_emitted_charger_low_energy: bool = false;
+    let mut warning_emitted_ac_status_unknown: bool = false;
 
     let mut last_bat_maxchargelevel = -999.9;
 
@@ -464,6 +465,11 @@ fn main() {
 	    warning_emitted_charger_low_energy = false;
 	}
 
+	// Reset warning "ac_status unknown"
+	if ac_status != None {
+	    warning_emitted_ac_status_unknown = false;
+	}
+
 	// Calculate energy input on the SteamDeck
 	let pdam = sensors.pdam();
 	let pdvl = sensors.pdvl();
@@ -538,6 +544,12 @@ fn main() {
 		    }
 		},
             _ => {
+		if ! warning_emitted_ac_status_unknown {
+		    println!("Warning: AC Adapter status unknown: ac_status='{:?}', status='{:?}",
+			     ac_status, status);
+		    warning_emitted_ac_status_unknown = true;
+		}
+
                 // Probably "Unknown" or "Not charging". Use heuristics as a fallback.
                 let ordering = match (battery_percent, prev_battery_percent) {
                     (Some(lhs), Some(rhs)) => lhs.partial_cmp(&rhs),
