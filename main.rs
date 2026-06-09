@@ -470,15 +470,10 @@ fn main() {
             }
         };
 
-	// Register the last change of ac_status (to grant a grace period and
-	// calculate later if it's charging or discharging)
-	if prev_ac_status != ac_status {
-	    ac_status_last_change = prev_ac_status;
-	    ac_status_last_change_at_loop = loop_counter;
-	}
-	// Still, if uninitialized, change from None to the current one, to
-	// indicate no change since the start.
-	if ac_status_last_change == None {
+	// On first cycle, initialize ac_status-related vars, change from None
+	// to the current one, to indicate no change since the start.
+	if loop_counter == 1 {
+	    prev_ac_status = ac_status;
 	    ac_status_last_change = ac_status;
 	    ac_status_last_change_at_loop = loop_counter;
 	}
@@ -613,14 +608,17 @@ fn main() {
 	// 'Discharging' (or 'Charging') for the same reasons explained there,
 	// and giving some grace period to the connection to settle.
 	if ac_status == Some("Connected") && battery_status == Some("Discharging") {
-	    if (loop_counter - ac_status_last_change_at_loop) >= 5 {
-		ac_status = Some("Connected slow");
-	    }
+	    ac_status = Some("Connected slow");
 	}
 	if ac_status == Some("Connected slow") && battery_status == Some("Charging") {
-	    if (loop_counter - ac_status_last_change_at_loop) >= 5 {
-		ac_status = Some("Connected");
-	    }
+	    ac_status = Some("Connected");
+	}
+
+	// Register the last change of ac_status (to grant a grace period and
+	// calculate later if it's charging or discharging)
+	if prev_ac_status != ac_status {
+	    ac_status_last_change = prev_ac_status;
+	    ac_status_last_change_at_loop = loop_counter;
 	}
 
 	// Print info about AC adapter status changes (connection/disconnection)
