@@ -128,6 +128,15 @@ fn write_f64(dir_path: &str, var_name: &str, val: Option<f64>) {
     }
 }
 
+fn is_equal_f64_with_margin(val1: f64, val2: f64, margin: f64) -> bool {
+    if (val1 - val2).abs() <= margin {
+	true
+    }
+    else {
+	false
+    }
+}
+
 fn main() {
     // Print version info
     let version = env!("CARGO_PKG_VERSION");
@@ -537,8 +546,17 @@ fn main() {
 			|| battery_percent.unwrap_or(-1.0) > prev_battery_percent_hist_avg {
 			    Some("Charging")
 			}
-		    else if battery_percent == prev_battery_percent
-			&& battery_percent.unwrap_or(-1.0) == prev_battery_percent_hist_avg {
+		    else if is_equal_f64_with_margin(battery_percent.unwrap_or(-1.0), prev_battery_percent.unwrap_or(-1.0), 0.005)
+			&& is_equal_f64_with_margin(battery_percent.unwrap_or(-1.0), prev_battery_percent_hist_avg, 0.005) {
+			    if DEBUG {
+				if loop_counter % 10 == 0 {
+				    println!("DBG: battery charge stable / not charging: cur={:.3}% avg={:.3?}%, diff={:.3?}%",
+					     prev_battery_percent.unwrap_or(-1.0),
+					     prev_battery_percent_hist_avg,
+					     (battery_percent.unwrap_or(-1.0) - prev_battery_percent_hist_avg));
+				}
+			    }
+
 			    // In the SteamDecks at least, when charging with
 			    // powerful enough chargers it is updating every second,
 			    // but when disconnected or using chargers not providing
@@ -724,7 +742,10 @@ fn main() {
         prev_battery_percent_hist[0] = battery_percent.unwrap_or(-1.0);
 	if DEBUG {
 	    if loop_counter % 10 == 0 && (battery_status == Some("Discharging") || battery_status == Some("Not charging")) {
-		println!("DBG: battery charge: cur={:.3}% avg={:.3?}%", prev_battery_percent.unwrap_or(-1.0), prev_battery_percent_hist_avg);
+		println!("DBG: battery charge: cur={:.3}% avg={:.3?}%, absdiff={:.3?}%",
+			 prev_battery_percent.unwrap_or(-1.0),
+			 prev_battery_percent_hist_avg,
+			 (battery_percent.unwrap_or(-1.0) - prev_battery_percent_hist_avg).abs());
 	    }
 	}
 
