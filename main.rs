@@ -532,6 +532,7 @@ fn main() {
 			// changes), waiting a few cycles to stabilize
 			if (loop_counter - ac_status_last_change_at_loop) == 5 && ! warning_emitted_charger_low_energy {
 			    println!("Warning: AC Adapter connected but battery is actually discharging");
+			    warning_emitted_charger_low_energy = true;
 			}
 			Some("Discharging")
 		    }
