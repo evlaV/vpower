@@ -29,7 +29,7 @@ fn read_battery_string(path_bat: &PathBuf, var_name: &str) -> Option<String> {
     match fs::read_to_string(&path) {
         Err(err) => {
             if !failed.lock().unwrap().contains(&path) {
-                eprintln!("read {path}: {err}");
+                eprintln!("Error: read {path}: {err}");
                 failed.lock().unwrap().insert(path);
             }
             None
@@ -43,19 +43,19 @@ fn read_battery_f64(path_bat: &PathBuf, var_name: &str) -> Option<f64> {
     match fs::read_to_string(&path) {
         Err(err) => {
             if !failed.lock().unwrap().contains(&path) {
-                eprintln!("read {path}: {err}");
+                eprintln!("Error: read {path}: {err}");
                 failed.lock().unwrap().insert(path);
             }
             None
         }
         Ok(string) => match f64::from_str(string.trim()) {
             Err(err) => {
-                eprintln!("read {path}: {err}");
+                eprintln!("Error: read {path}: {err}");
                 None
             }
             Ok(val) => {
                 if !val.is_finite() {
-                    eprintln!("read {path}: {val} is not finite");
+                    eprintln!("Error: read {path}: {val} is not finite");
                     None
                 } else {
                     Some(val)
@@ -89,7 +89,7 @@ fn read_battery_maxchargelevel(path: &str) -> Option<f64> {
 
     // default
     if !failed.lock().unwrap().contains(path) {
-	eprintln!("read '{path}': could not read from file 3 times in a row");
+	eprintln!("Error: read '{path}': could not read from file 3 times in a row");
         failed.lock().unwrap().insert(path.to_string());
     }
     None
@@ -103,7 +103,7 @@ fn write_str(dir_path: &str, var_name: &str, val: Option<&str>) {
 
     if let Err(err) = fs::create_dir(dir_path) {
         if err.kind() != io::ErrorKind::AlreadyExists {
-            eprintln!("mkdir {dir_path}: {err}");
+            eprintln!("Error: mkdir {dir_path}: {err}");
             return;
         }
     }
@@ -111,14 +111,14 @@ fn write_str(dir_path: &str, var_name: &str, val: Option<&str>) {
     // Write to a temporary path first.
     let dot_path = format!("{dir_path}/.{var_name}");
     if let Err(err) = fs::write(&dot_path, format!("{val}\n")) {
-        eprintln!("write {dot_path}: {err}");
+        eprintln!("Error: write {dot_path}: {err}");
         return;
     }
 
     // Then move into place for atomicity.
     let final_path = format!("{dir_path}/{var_name}");
     if let Err(err) = fs::rename(&dot_path, &final_path) {
-        eprintln!("rename {dot_path} -> {final_path}: {err}");
+        eprintln!("Error: rename {dot_path} -> {final_path}: {err}");
     }
 }
 
@@ -158,10 +158,10 @@ fn main() {
     let mut request_shutdown_battery_percent = 0.49999998;
     let mut force_shutdown_timeout_secs = 10.0;
     match fs::read(config_path) {
-        Err(err) => eprintln!("read {config_path}: {err}"),
+        Err(err) => eprintln!("Error: read {config_path}: {err}"),
 
         Ok(bytes) => match toml::from_slice::<Config>(&bytes) {
-            Err(err) => eprintln!("read {config_path}: {err}"),
+            Err(err) => eprintln!("Error: read {config_path}: {err}"),
 
             Ok(config) => {
                 if let Some(value) = config.request_shutdown_battery_percent {
@@ -396,7 +396,7 @@ fn main() {
 		None => {
 		    failed_to_read_current_now += 1;
 		    if (failed_to_read_current_now % 60) == 1 {
-			eprintln!("read {}/current_now: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
+			eprintln!("Error: read {}/current_now: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
 				  path_bat.display(),
 				  failed_to_read_current_now,
 				  attempts_to_read_current_now);
@@ -413,7 +413,7 @@ fn main() {
 		None => {
 		    failed_to_read_power_now += 1;
 		    if (failed_to_read_power_now % 60) == 1 {
-			eprintln!("read {}/power_now: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
+			eprintln!("Error: read {}/power_now: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
 				  path_bat.display(),
 				  failed_to_read_power_now,
 				  attempts_to_read_power_now);
