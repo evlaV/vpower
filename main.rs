@@ -137,6 +137,36 @@ fn is_equal_f64_with_margin(val1: f64, val2: f64, margin: f64) -> bool {
     }
 }
 
+fn get_boottime() -> f64 {
+    unsafe {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+	if libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) == 0 {
+            ts.tv_sec as f64 + ts.tv_nsec as f64 / 1_000_000_000.0
+        }
+	else {
+            eprintln!("Error: libc::clock_gettime() failed");
+            0.0
+        }
+    }
+}
+
+fn format_duration(total_seconds: f64) -> String {
+    let days = total_seconds as u64 / 86400;
+    let remainder = total_seconds % 86400.0;
+
+    let hours = remainder as u64 / 3600;
+    let remainder = remainder % 3600.0;
+
+    let minutes = remainder as u64 / 60;
+    let seconds = remainder % 60.0;
+
+    format!("{}d {}h {}m {:.2}s", days, hours, minutes, seconds)
+}
+
 fn main() {
     // Print version info
     let version = env!("CARGO_PKG_VERSION");
@@ -329,12 +359,27 @@ fn main() {
     let mut ac_status_last_change : Option<&str> = None;
     let mut ac_status_last_change_at_loop : u64 = 0;
 
+    // Detect system suspends
+    let mut suspend_last_boottime = get_boottime();
+    let suspend_threshold = 3.0;
+
     // Start.
     println!("Info: Running.");
 
     // Every second:
     loop {
 	loop_counter += 1;
+
+	// Detect system suspends
+	let suspend_current_boottime = get_boottime();
+	let suspend_delta = suspend_current_boottime - suspend_last_boottime;
+	let suspend_detected = suspend_delta > suspend_threshold;
+        if suspend_detected {
+            println!("Info: Suspend detected, boottime jumped by {} ({:.02}s) (last: {:.2}s, current: {:.2}s)",
+		     format_duration(suspend_delta),
+                     suspend_delta, suspend_last_boottime, suspend_current_boottime);
+        }
+        suspend_last_boottime = suspend_current_boottime;
 
 	// Get max charge battery level, if set
 	let mut bat_maxchargelevel = 100.0;
