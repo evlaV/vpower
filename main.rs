@@ -614,6 +614,18 @@ fn main() {
 	    ac_status = Some("Connected");
 	}
 
+	// Special actions when battery_status is Full
+	if battery_status == Some("Full") {
+
+	    // If battery_status is considered Full, and a AC adapter is
+	    // connected, consider it always Conneted and not Connected Slow,
+	    // because the charge does slow down to a halt at some point -- so,
+	    // avoid unnecessarily alarming users or leaving wrong info in logs
+	    if matches!(ac_status, Some("Connected" | "Connected slow")) {
+		ac_status = Some("Connected");
+	    }
+	}
+
 	// Register the last change of ac_status (to grant a grace period and
 	// calculate later if it's charging or discharging)
 	if prev_ac_status != ac_status {
