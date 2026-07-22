@@ -316,6 +316,7 @@ fn main() {
 
     let mut warning_emitted_charger_low_energy: bool = false;
     let mut warning_emitted_ac_status_unknown: bool = false;
+    let mut info_emitted_battery_full: bool = false;
 
     let mut last_bat_maxchargelevel = -999.9;
 
@@ -624,6 +625,20 @@ fn main() {
 	    if matches!(ac_status, Some("Connected" | "Connected slow")) {
 		ac_status = Some("Connected");
 	    }
+
+	    // Log that we reached Full and stopped charging
+	    if power_now.is_some_and(|val| val <= 0.01) {
+		if ! info_emitted_battery_full {
+		    println!("Info: Battery '{}' at {} and charging stopped",
+			     battery_status.unwrap_or("None"),
+			     format!("{:.2}%", battery_percent.unwrap_or(-1.0)));
+		    info_emitted_battery_full = true;
+		}
+	    }
+	}
+	else {
+	    // Reset
+	    info_emitted_battery_full = false;
 	}
 
 	// Register the last change of ac_status (to grant a grace period and
