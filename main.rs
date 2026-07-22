@@ -715,6 +715,10 @@ fn main() {
 		println!("Info: AC Adapter status at start: '{}'{energy_input_str}, battery {charge_str}, status: '{}'",
 			 ac_status.unwrap_or("None"), battery_status.unwrap_or("None"));
 	    }
+	    else if suspend_detected {
+		println!("Info: AC Adapter status after suspend: '{}'{energy_input_str}, battery {charge_str}, status: '{}'",
+			 ac_status.unwrap_or("None"), battery_status.unwrap_or("None"));
+	    }
 	    else if (loop_counter - ac_status_last_change_at_loop) == 5 && ac_status_last_change != ac_status {
 		println!("Info: AC Adapter status changed '{}'->'{}'{energy_input_str}, battery {charge_str}, status: '{}'",
 			 ac_status_last_change.unwrap_or("None"), ac_status.unwrap_or("None"),
