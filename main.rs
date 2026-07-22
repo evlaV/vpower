@@ -619,8 +619,8 @@ fn main() {
 		},
             _ => {
 		if ! warning_emitted_ac_status_unknown {
-		    println!("Warning: AC Adapter status unknown: ac_status='{:?}', status='{:?}",
-			     ac_status, status);
+		    println!("Warning: AC Adapter status unknown: ac_status='{}', status='{}'",
+			     ac_status.unwrap_or("None"), status.unwrap_or("None".to_string()));
 		    warning_emitted_ac_status_unknown = true;
 		}
 
