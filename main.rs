@@ -665,13 +665,14 @@ fn main() {
 	    ac_status = Some("Connected");
 	}
 
-	// Special actions when battery_status is Full
-	if battery_status == Some("Full") {
+	// Special actions when battery_status is Full or reached MaxChargeLevel
+	if battery_status == Some("Full") || battery_reached_maxchargelevel {
 
-	    // If battery_status is considered Full, and a AC adapter is
-	    // connected, consider it always Conneted and not Connected Slow,
+	    // If battery_status is considered (near) Full, and a AC adapter is
+	    // connected, consider it always Connected and not Connected Slow,
 	    // because the charge does slow down to a halt at some point -- so,
-	    // avoid unnecessarily alarming users or leaving wrong info in logs
+	    // avoid unnecessarily alarming users ('!' algongside the battery
+	    // icon in SteamUI interface) or leaving wrong info in logs
 	    if matches!(ac_status, Some("Connected" | "Connected slow")) {
 		ac_status = Some("Connected");
 	    }
@@ -679,7 +680,7 @@ fn main() {
 	    // Log that we reached Full and stopped charging
 	    if power_now.is_some_and(|val| val <= 0.01) {
 		if ! info_emitted_battery_full {
-		    println!("Info: Battery '{}' at {} and charging stopped",
+		    println!("Info: Battery '{}' at {} and charging slowed down greatly, stopped, or about to do so",
 			     battery_status.unwrap_or("None"),
 			     format!("{:.2}%", battery_percent.unwrap_or(-1.0)));
 		    info_emitted_battery_full = true;
