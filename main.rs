@@ -395,12 +395,12 @@ fn main() {
 	    };
 	}
 	else {
-	    // Get max charge battery level indirectly (charge_types='Long Life'
+	    // Get max charge battery level indirectly (charge_types='Long_Life'
 	    // is assumed to limit to 80% (Lenovo Legion Go S models), otherwise
 	    // assume 100%)
 	    if ! path_chargetypes_file.as_os_str().is_empty() {
 		if let Some(content) = read_battery_string(&path_bat, "charge_types") {
-		    if content.contains("[Long Life]") {
+		    if content.contains("[Long_Life]") {
 			bat_maxchargelevel = 80.0;
 		    }
 		}
