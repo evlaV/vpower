@@ -361,7 +361,7 @@ fn main() {
 
     // Detect system suspends
     let mut suspend_last_boottime = get_boottime();
-    let suspend_threshold = 3.0;
+    let suspend_threshold = 30.0;			// slightly high due to "freezes" reading sysfs files in some cases
 
     // Start.
     println!("Info: Running.");
@@ -379,6 +379,11 @@ fn main() {
 		     format_duration(suspend_delta),
                      suspend_delta, suspend_last_boottime, suspend_current_boottime);
         }
+	if DEBUG && ! suspend_detected && suspend_delta > 1.5 {
+            println!("DBG: The loop took quite long to process, more than 1.5 seconds (incl. 1s sleep), boottime jumped by {} ({:.02}s) (last: {:.2}s, current: {:.2}s)",
+		     format_duration(suspend_delta),
+                     suspend_delta, suspend_last_boottime, suspend_current_boottime);
+	}
         suspend_last_boottime = suspend_current_boottime;
 
 	// Get max charge battery level, if set
