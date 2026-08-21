@@ -404,6 +404,10 @@ fn main() {
 			bat_maxchargelevel = 80.0;
 		    }
 		}
+		else {
+		    bat_maxchargelevel = last_bat_maxchargelevel;
+		    println!("Info: New MaxChargeLevel value could not be read (Lenovo Legion known problem?), assuming last value = {}%", last_bat_maxchargelevel);
+		}
 	    }
 	}
 
