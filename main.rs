@@ -384,27 +384,38 @@ fn main() {
 	}
         suspend_last_boottime = suspend_current_boottime;
 
-	// Get max charge battery level, if set
-	let mut bat_maxchargelevel = 100.0;
-	if ! path_maxchargelevel_file.as_os_str().is_empty() {
-	    bat_maxchargelevel = match read_battery_maxchargelevel(&path_maxchargelevel_file.display().to_string()) {
-		None       => -999.9,
-		Some(val)  => val
-	    };
-	}
-	else {
-	    // Get max charge battery level indirectly (charge_types='Long_Life'
-	    // is assumed to limit to 80% (Lenovo Legion Go S models), otherwise
-	    // assume 100%)
-	    if ! path_chargetypes_file.as_os_str().is_empty() {
-		if let Some(content) = read_battery_string(&path_bat, "charge_types") {
-		    if content.contains("[Long_Life]") {
-			bat_maxchargelevel = 80.0;
+	// Get max charge battery level, if set, and rate-limit retrieval to
+	// only once every few loops (it causes problems in some hardware models
+	// with firmware bugs to query too often, and it's not that critical to
+	// keep it accurate)
+	let mut bat_maxchargelevel = -999.9;
+	if ! (last_bat_maxchargelevel >= 0.0 && last_bat_maxchargelevel <= 100.0) || (loop_counter % 10 == 0) {
+	    if DEBUG {
+		println!("DBG: Trying to read MaxChargeLevel, current value = {}%, loop_counter={}",
+			 last_bat_maxchargelevel, loop_counter);
+	    }
+
+	    if ! path_maxchargelevel_file.as_os_str().is_empty() {
+		bat_maxchargelevel = match read_battery_maxchargelevel(&path_maxchargelevel_file.display().to_string()) {
+		    None       => -999.9,
+		    Some(val)  => val
+		};
+	    }
+	    else {
+		// Get max charge battery level indirectly (charge_types='Long_Life'
+		// is assumed to limit to 80% (Lenovo Legion Go S models), otherwise
+		// assume 100%)
+		if ! path_chargetypes_file.as_os_str().is_empty() {
+		    if let Some(content) = read_battery_string(&path_bat, "charge_types") {
+			if content.contains("[Long_Life]") {
+			    bat_maxchargelevel = 80.0;
+			}
 		    }
-		}
-		else {
-		    bat_maxchargelevel = last_bat_maxchargelevel;
-		    println!("Info: New MaxChargeLevel value could not be read (Lenovo Legion known problem?), assuming last value = {}%", last_bat_maxchargelevel);
+		    else {
+			bat_maxchargelevel = last_bat_maxchargelevel;
+			println!("Warning: New MaxChargeLevel value could not be read (Lenovo Legion Go known problem?), assuming last value = {}%",
+				 last_bat_maxchargelevel);
+		    }
 		}
 	    }
 	}
