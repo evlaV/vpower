@@ -317,8 +317,6 @@ fn main() {
 	}
     }
     if path_maxchargelevel_file.as_os_str().is_empty() {
-	println!("Warning: Init: MaxChargeLevel feature: Cound not find suitable file for direct retrieval");
-
 	// Indirect MaxChargeLevel retrieval.  For systems with charge_types = "Long
 	// Life", like Lenovo Legion Go S, will assume 80%.
 	if PathBuf::from(format!("{}/charge_types", path_bat.display())).exists() {
@@ -326,7 +324,7 @@ fn main() {
 	    println!("Info: Init: MaxChargeLevel feature: using indirect file '{}'", path_chargetypes_file.display());
 	}
 	else {
-	    println!("Warning: Init: MaxChargeLevel feature: Cound not find suitable indirect file (charge_types) either, assuming MaxChargeLevel=100%");
+	    println!("Warning: Init: MaxChargeLevel feature: Cound not find suitable direct or indirect file (charge_types), assuming MaxChargeLevel=100%");
 	}
     }
 
