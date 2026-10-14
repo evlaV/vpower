@@ -330,12 +330,14 @@ fn main() {
 
     // Initialize libsensors.
     let sensors = Sensors::new();
-    if sensors.pdvl() == None || sensors.pdam() == None {
+    let sensors_available_steamdeck = if sensors.pdvl() == None || sensors.pdam() == None {
 	println!("Info: Init: Steam Deck sensors: Cannot read Power Delivery values for the AC Adapter (not a Steam Deck)");
+	false
     }
     else {
 	println!("Info: Init: Steam Deck sensors: Can read Power Delivery values for the AC Adapter");
-    }
+	true
+    };
 
     // Keep for heuristics.
     let mut prev_ac_status: Option<&str> = None;
@@ -353,6 +355,9 @@ fn main() {
     let mut attempts_to_read_power_now : u64 = 0;
     let mut failed_to_read_current_now : u64 = 0;
     let mut failed_to_read_power_now : u64 = 0;
+
+    let mut corrected_connected_to_connected_slow : u64 = 0;
+    let mut corrected_connected_slow_to_connected : u64 = 0;
 
     let mut ac_status_last_change : Option<&str> = None;
     let mut ac_status_last_change_at_loop : u64 = 0;
@@ -665,18 +670,36 @@ fn main() {
         };
 
 	// If AC adapter is Connected as was not initially detected as providing
-	// insufficient energy ("weak charger"), but nevertheless does not
+	// insufficient energy ("slow charger"), but nevertheless does not
 	// provide sufficient energy and the battery_status is actually
 	// Discharging, consider it "slow".  Also the other way around.
 	//
 	// This has to be evaluated after battery_status is calculated to
 	// 'Discharging' (or 'Charging') for the same reasons explained there,
 	// and giving some grace period to the connection to settle.
-	if ac_status == Some("Connected") && battery_status == Some("Discharging") {
-	    ac_status = Some("Connected slow");
+	//
+	// Also add some knowledge specific to the SteamDeck and its sensors, to
+	// consider 30W as not-slow and below that as slow (the official
+	// SteamDeck charger is 45W).
+	if ac_status == Some("Connected") {
+	    if battery_status == Some("Discharging") || (sensors_available_steamdeck && pd_power < 30.0) {
+		corrected_connected_to_connected_slow += 1;
+		if (corrected_connected_to_connected_slow % 10) == 1 {
+		    println!("Warning: ac_status='Connected' but detected as Slow, changing (battery_status={}, pd_power={pd_power}), corrected {corrected_connected_to_connected_slow} times (throttled)",
+			     battery_status.unwrap_or("invalid"));
+		    ac_status = Some("Connected slow");
+		}
+	    }
 	}
-	if ac_status == Some("Connected slow") && battery_status == Some("Charging") {
-	    ac_status = Some("Connected");
+	if ac_status == Some("Connected slow") {
+	    if battery_status == Some("Charging") || (sensors_available_steamdeck && pd_power >= 30.0) {
+		corrected_connected_slow_to_connected += 1;
+		if (corrected_connected_slow_to_connected % 10) == 1 {
+		    println!("Warning: ac_status='Connected Slow' but detected as Connected, changing (battery_status={}, pd_power={pd_power}), corrected {corrected_connected_slow_to_connected} times (throttled)",
+			     battery_status.unwrap_or("invalid"));
+		    ac_status = Some("Connected");
+		}
+	    }
 	}
 
 	// Special actions when battery_status is Full or reached MaxChargeLevel
