@@ -602,7 +602,8 @@ fn main() {
 			Some("Unknown")
 		    }
 		    else if battery_percent > prev_battery_percent
-			|| battery_percent.unwrap_or(-1.0) > prev_battery_percent_hist_avg {
+			|| battery_percent.unwrap_or(-1.0) > prev_battery_percent_hist_avg
+			|| prev_battery_percent_hist.iter().any(|&prev| battery_percent.unwrap_or(-1.0) > prev) {
 			    Some("Charging")
 			}
 		    else if is_equal_f64_with_margin(battery_percent.unwrap_or(-1.0), prev_battery_percent.unwrap_or(-1.0), 0.005)
