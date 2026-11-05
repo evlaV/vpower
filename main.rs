@@ -340,7 +340,8 @@ fn main() {
     // Keep for heuristics.
     let mut prev_ac_status: Option<&str> = None;
     let mut prev_battery_percent: Option<f64> = None;
-    let mut prev_battery_percent_hist: [f64; 9] = [-1.0; 9];
+    let mut prev_battery_percent_hist: [f64; 15] = [-1.0; 15];
+    let mut prev_voltage : f64 = -1.0;
 
     let mut warning_emitted_charger_low_energy: bool = false;
     let mut warning_emitted_ac_status_unknown: bool = false;
@@ -351,8 +352,12 @@ fn main() {
     let mut loop_counter : u64 = 0;
     let mut attempts_to_read_current_now : u64 = 0;
     let mut attempts_to_read_power_now : u64 = 0;
+    let mut attempts_to_read_voltage_now : u64 = 0;
+    let mut attempts_to_read_voltage_min_design : u64 = 0;
     let mut failed_to_read_current_now : u64 = 0;
     let mut failed_to_read_power_now : u64 = 0;
+    let mut failed_to_read_voltage_now : u64 = 0;
+    let mut failed_to_read_voltage_min_design : u64 = 0;
 
     let mut ac_status_last_change : Option<&str> = None;
     let mut ac_status_last_change_at_loop : u64 = 0;
@@ -489,8 +494,34 @@ fn main() {
 	};
 
         let status = read_battery_string(&path_bat, "status");
-        let voltage_min_design = read_battery_f64(&path_bat, "voltage_min_design");
-        let voltage_now = read_battery_f64(&path_bat, "voltage_now");
+        attempts_to_read_voltage_min_design += 1;
+        let voltage_min_design = match read_battery_f64(&path_bat, "voltage_min_design") {
+	    Some(v) => Some(v),
+	    None => {
+		failed_to_read_voltage_min_design += 1;
+		if (failed_to_read_voltage_min_design % 60) == 1 {
+		    eprintln!("Error: read {}/voltage_min_design: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
+			      path_bat.display(),
+			      failed_to_read_voltage_min_design,
+			      attempts_to_read_voltage_min_design);
+		}
+		Some(-1.0)
+	    }
+	};
+        attempts_to_read_voltage_now += 1;
+        let voltage_now = match read_battery_f64(&path_bat, "voltage_now") {
+	    Some(v) => Some(v),
+	    None => {
+		failed_to_read_voltage_now += 1;
+		if (failed_to_read_voltage_now % 60) == 1 {
+		    eprintln!("Error: read {}/voltage_now: {} failed out of {} attempts, loop counter={loop_counter} (throttled message)",
+			      path_bat.display(),
+			      failed_to_read_voltage_now,
+			      attempts_to_read_voltage_now);
+		}
+		Some(-1.0)
+	    }
+	};
 
         // Derive battery variables.
         let charge_shutdown = charge_full.map(|charge_full| {
@@ -504,6 +535,33 @@ fn main() {
             (Some(voltage_now), None, None) => Some(voltage_now * 0.0),
             _ => None,
         };
+
+	// Prefer the actual reported voltage, fall back to the design voltage
+	// if unavailable, and check that it's within sensible range of 1 to 100
+	// Volts (already quite generous)
+	let voltage = match voltage_now {
+	    Some(v) if v.is_finite() && (1_000_000.0..=100_000_000.0).contains(&v) => Some(v),
+	    _ => {
+		if (failed_to_read_voltage_now % 60) == 1 {
+		    eprintln!("Error: value of 'voltage_now={:#?}' not considered valid (throttled message)",
+			      voltage_now);
+		}
+		match voltage_min_design {
+		    Some(v) if v.is_finite() && (1_000_000.0..=100_000_000.0).contains(&v) => Some(v),
+		    _ => {
+			if (failed_to_read_voltage_min_design % 60) == 1 {
+			    eprintln!("Error: value of 'voltage_min_design={:#?}' not considered valid, using 'prev_voltage={}' (throttled message)",
+				      voltage_min_design, prev_voltage);
+			}
+			Some(prev_voltage)
+		    }
+		}
+	    },
+	};
+	if ! voltage.unwrap_or(-1.0).is_sign_positive() {
+	    eprintln!("Error: value of 'voltage={:#?}' not considered valid (not positive)",
+		      voltage);
+	}
 
         // Calculate ac_status.
         let mut ac_status = {
@@ -602,7 +660,8 @@ fn main() {
 			Some("Unknown")
 		    }
 		    else if battery_percent > prev_battery_percent
-			|| battery_percent.unwrap_or(-1.0) > prev_battery_percent_hist_avg {
+			|| battery_percent.unwrap_or(-1.0) > prev_battery_percent_hist_avg
+			|| prev_battery_percent_hist.iter().any(|&prev| battery_percent.unwrap_or(-1.0) > prev) {
 			    Some("Charging")
 			}
 		    else if is_equal_f64_with_margin(battery_percent.unwrap_or(-1.0), prev_battery_percent.unwrap_or(-1.0), 0.005)
@@ -746,29 +805,29 @@ fn main() {
 	}
 
         // Calculate secs_until_battery_full.
-        let vars = (charge_full, charge_now, voltage_min_design, power_now);
+        let vars = (charge_full, charge_now, voltage, power_now);
         let secs_until_battery_full = match vars {
-            (Some(charge_full), Some(charge_now), Some(voltage_min_design), Some(power_now)) => {
+            (Some(charge_full), Some(charge_now), Some(voltage), Some(power_now)) => {
 		let charge_maxlevel = charge_full * (bat_maxchargelevel / 100.0);
                 let charge_delta = if charge_now < charge_maxlevel { charge_maxlevel - charge_now } else { 0.0 };
-                let hours = if charge_delta == 0.0 { 0.0 } else { charge_delta * voltage_min_design / power_now };
+                let hours = if charge_delta == 0.0 { 0.0 } else { charge_delta * voltage / power_now };
                 Some(hours * 3600.0)
             }
             _ => None,
         };
 
         // Calcuate secs_until_shutdown_request.
-        let vars = (charge_now, charge_shutdown, voltage_min_design, power_now);
+        let vars = (charge_now, charge_shutdown, voltage, power_now);
         let secs_until_shutdown_request = match vars {
             (
                 Some(charge_now),
                 Some(charge_shutdown),
-                Some(voltage_min_design),
+                Some(voltage),
                 Some(power_now),
             ) => {
                 if charge_now > charge_shutdown {
                     let charge_delta = charge_now - charge_shutdown;
-                    let hours = charge_delta * voltage_min_design / power_now;
+                    let hours = charge_delta * voltage / power_now;
                     Some(hours * 3600.0)
                 } else {
                     match ac_status {
@@ -831,6 +890,7 @@ fn main() {
         // Update prev_*.
         prev_ac_status = ac_status;
         prev_battery_percent = battery_percent;
+	prev_voltage = voltage.unwrap_or(-1.0);
 
 	// Update history of battery_percent values
         prev_battery_percent_hist.rotate_right(1);
